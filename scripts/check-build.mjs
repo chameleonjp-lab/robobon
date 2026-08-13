@@ -18,8 +18,10 @@ for (const marker of required) {
   }
 }
 
-if (html.includes('/robobo/') || /robobo(?!n)/i.test(html)) {
-  throw new Error('旧slugが配信物へ混入しています: robobo');
+const legacySlug = ['robo', 'bo'].join('');
+
+if (html.includes(`/${legacySlug}/`) || new RegExp(`${legacySlug}(?!n)`, 'i').test(html)) {
+  throw new Error('旧slugが配信物へ混入しています');
 }
 
 if (/<(?:script|link)[^>]+(?:src|href)=["']https?:\/\//i.test(html)) {

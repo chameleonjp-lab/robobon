@@ -1,0 +1,46 @@
+{
+  "manifestVersion": 1,
+  "gameId": "chameleonjp-lab.robobon.v1",
+  "assets": [
+    {
+      "id": "sample.home.v1",
+      "path": "assets/visual-samples/home.svg",
+      "kind": "visual-sample",
+      "width": 320,
+      "height": 220,
+      "status": "direction-only",
+      "source": "original SVG created for Robobon",
+      "rights": "project-owned; no third-party material"
+    },
+    {
+      "id": "sample.planner.v1",
+      "path": "assets/visual-samples/planner.svg",
+      "kind": "visual-sample",
+      "width": 320,
+      "height": 220,
+      "status": "direction-only",
+      "source": "original SVG created for Robobon",
+      "rights": "project-owned; no third-party material"
+    },
+    {
+      "id": "sample.battle.v1",
+      "path": "assets/visual-samples/battle.svg",
+      "kind": "visual-sample",
+      "width": 320,
+      "height": 220,
+      "status": "direction-only",
+      "source": "original SVG created for Robobon",
+      "rights": "project-owned; no third-party material"
+    },
+    {
+      "id": "sample.analysis.v1",
+      "path": "assets/visual-samples/analysis.svg",
+      "kind": "visual-sample",
+      "width": 320,
+      "height": 220,
+      "status": "direction-only",
+      "source": "original SVG created for Robobon",
+      "rights": "project-owned; no third-party material"
+    }
+  ]
+}

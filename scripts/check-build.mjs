@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const indexPath = resolve('dist/index.html');
@@ -30,6 +30,20 @@ if (/<(?:script|link)[^>]+(?:src|href)=["']https?:\/\//i.test(html)) {
 
 if (html.includes('/src/main.ts')) {
   throw new Error('未ビルドのsrc/main.ts参照が残っています');
+}
+
+const requiredAssets = [
+  'assets/asset-manifest.json',
+  'assets/visual-samples/home.svg',
+  'assets/visual-samples/planner.svg',
+  'assets/visual-samples/battle.svg',
+  'assets/visual-samples/analysis.svg',
+];
+
+for (const asset of requiredAssets) {
+  await access(resolve('dist', asset)).catch(() => {
+    throw new Error(`必須の見本素材が配信物にありません: ${asset}`);
+  });
 }
 
 console.log('build smoke check passed: /robobon/');

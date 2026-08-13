@@ -14,51 +14,154 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at 15% 10%, rgb(59 130 246 / 18%), transparent 36%),
     #0f1720;
 }
 
-.shell {
-  display: grid;
-  min-height: 100vh;
-  place-content: center;
-  gap: 0.75rem;
-  padding: max(2rem, env(safe-area-inset-top)) 1.25rem max(2rem, env(safe-area-inset-bottom));
+button,
+select,
+input {
+  font: inherit;
 }
 
-.eyebrow,
-.status {
-  margin: 0;
-  color: #8da5ba;
-  font-size: 0.75rem;
-  letter-spacing: 0.12em;
+button,
+select {
+  min-height: 44px;
+  border: 1px solid #456174;
+  border-radius: 0.5rem;
+  color: #edf7fb;
+  background: #172936;
+}
+
+button {
+  padding: 0.55rem 0.8rem;
+  cursor: pointer;
+}
+
+button:active {
+  background: #244253;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+select {
+  max-width: 100%;
+  padding: 0.55rem 0.6rem;
+}
+
+.spike-shell {
+  width: min(100%, 32rem);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: max(1.25rem, env(safe-area-inset-top)) 1rem max(1.5rem, env(safe-area-inset-bottom));
+}
+
+.spike-heading {
+  display: grid;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
 }
 
 .eyebrow {
+  margin: 0;
+  color: #9fc4d6;
+  font-size: 0.75rem;
   font-weight: 700;
+  letter-spacing: 0.12em;
 }
 
 h1 {
   margin: 0;
   color: #f8fafc;
-  font-size: clamp(2.25rem, 12vw, 4rem);
-  line-height: 1;
-  letter-spacing: 0.04em;
+  font-size: clamp(1.75rem, 8vw, 2.6rem);
+  line-height: 1.1;
+  letter-spacing: 0.03em;
 }
 
-.message {
-  max-width: 28rem;
+.spike-description {
   margin: 0;
   color: #d1dbe5;
-  font-size: clamp(1rem, 4vw, 1.25rem);
-  line-height: 1.7;
+  line-height: 1.6;
 }
 
-.status {
-  max-width: 32rem;
-  line-height: 1.6;
-  letter-spacing: 0;
+.spike-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.control {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.control__caption {
+  color: #9fc4d6;
+  font-size: 0.75rem;
+}
+
+.control--check {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 44px;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid #344d5d;
+  border-radius: 0.5rem;
+  color: #d1dbe5;
+}
+
+.control--check input {
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: #b8a1ff;
+}
+
+.spike-stage {
+  overflow: hidden;
+  border: 1px solid #456174;
+  border-radius: 0.75rem;
+  background: #0b1118;
+  box-shadow: 0 1rem 3rem rgb(0 0 0 / 22%);
+}
+
+.spike-canvas {
+  display: block;
+  width: 100%;
+  height: min(112vw, 460px);
+  min-height: 400px;
+  max-height: 460px;
+}
+
+.spike-status,
+.spike-metrics {
+  margin: 0.75rem 0 0;
+  color: #d1dbe5;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.spike-metrics {
+  overflow-wrap: anywhere;
+  color: #9fc4d6;
+}
+
+@media (min-width: 520px) {
+  .spike-shell {
+    padding-right: 1.25rem;
+    padding-left: 1.25rem;
+  }
+
+  .spike-controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

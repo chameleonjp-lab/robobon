@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-labelledby="title desc">
+  <title id="title">分析画面の低精細見本</title>
+  <desc id="desc">時間線、観測事実、次の実験候補を結び付ける画面</desc>
+  <rect width="320" height="220" rx="14" fill="#0f1720"/>
+  <path d="M22 28h88M22 37h58" stroke="#9fc4d6" stroke-width="4" stroke-linecap="round"/>
+  <path d="M28 66h264" stroke="#456174" stroke-width="3"/>
+  <g fill="#b8a1ff"><circle cx="58" cy="66" r="6"/><circle cx="148" cy="66" r="6"/><circle cx="254" cy="66" r="6"/></g>
+  <g fill="#172936" stroke="#456174"><rect x="24" y="86" width="126" height="46" rx="8"/><rect x="166" y="86" width="130" height="46" rx="8"/><rect x="24" y="146" width="272" height="50" rx="8"/></g>
+  <g fill="#e7edf3"><rect x="40" y="100" width="78" height="6" rx="3"/><rect x="40" y="113" width="94" height="5" rx="2.5"/><rect x="182" y="100" width="76" height="6" rx="3"/><rect x="182" y="113" width="92" height="5" rx="2.5"/></g>
+  <path d="M42 172h35l12-13 15 23 20-18 20 8 22-16 18 16 23-9 20 13 20-17 22 13" fill="none" stroke="#77d68a" stroke-width="3"/>
+  <circle cx="119" cy="182" r="5" fill="#ffb84d"/><circle cx="224" cy="174" r="5" fill="#ff5d6c"/>
+</svg>

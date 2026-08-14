@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-labelledby="title desc">
+  <title id="title">ホーム画面の低精細見本</title>
+  <desc id="desc">中央の機体と三つの操作カードで次の行動を示す画面</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#172936"/><stop offset="1" stop-color="#0b1118"/></linearGradient>
+    <linearGradient id="panel" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#1e3948"/><stop offset="1" stop-color="#13212b"/></linearGradient>
+  </defs>
+  <rect width="320" height="220" rx="14" fill="url(#bg)"/>
+  <path d="M0 166h320" stroke="#456174" stroke-opacity=".55"/>
+  <path d="M28 30h82M28 38h48" stroke="#9fc4d6" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="160" cy="96" r="45" fill="#0f1720" stroke="#9fc4d6" stroke-opacity=".35" stroke-width="2"/>
+  <ellipse cx="160" cy="133" rx="30" ry="8" fill="#000" fill-opacity=".35"/>
+  <path d="M134 91l10-21h32l10 21-10 28h-32z" fill="#36c6d2" stroke="#f8fafc" stroke-width="3"/>
+  <path d="M145 83h30" stroke="#d9ffff" stroke-width="6"/>
+  <path d="M151 101h7m4 0h7" stroke="#101820" stroke-width="4"/>
+  <circle cx="160" cy="96" r="57" fill="none" stroke="#b8a1ff" stroke-dasharray="3 8" stroke-width="2"/>
+  <g fill="url(#panel)" stroke="#456174">
+    <rect x="24" y="178" width="84" height="28" rx="7"/>
+    <rect x="118" y="178" width="84" height="28" rx="7"/>
+    <rect x="212" y="178" width="84" height="28" rx="7"/>
+  </g>
+  <g fill="#e7edf3"><rect x="42" y="189" width="48" height="5" rx="2.5"/><rect x="136" y="189" width="48" height="5" rx="2.5"/><rect x="230" y="189" width="48" height="5" rx="2.5"/></g>
+</svg>

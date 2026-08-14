@@ -143,6 +143,17 @@ const ACTION_IDS = new Set<ActionId>([
   'stop',
 ]);
 
+const FACT_KEYS = [
+  'enemyVisible',
+  'enemyNear',
+  'enemyInRange',
+  'projectileWarning',
+  'ammoAvailable',
+  'heatHigh',
+  'boundaryDanger',
+  'lineOfSight',
+] as const satisfies readonly (keyof RuleFacts)[];
+
 function assertIntegerInRange(value: number, min: number, max: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < min || value > max) {
     throw new Error(`${label} must be a safe integer in [${min}, ${max}]`);
@@ -181,10 +192,19 @@ function readConditionValue(condition: ConditionId, facts: RuleFacts): boolean {
 }
 
 function validateFacts(facts: RuleFacts): void {
+  if (!facts || typeof facts !== 'object') {
+    throw new Error('facts must be an object');
+  }
   assertTick(facts.tick);
-  for (const [key, value] of Object.entries(facts)) {
-    if (key !== 'tick' && typeof value !== 'boolean') {
+  for (const key of FACT_KEYS) {
+    if (typeof facts[key] !== 'boolean') {
       throw new Error(`fact ${key} must be boolean`);
+    }
+  }
+  const allowedKeys = new Set<string>(['tick', ...FACT_KEYS]);
+  for (const key of Object.keys(facts)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(`unknown fact: ${key}`);
     }
   }
 }
@@ -281,6 +301,10 @@ export class ActionSwitchGuard {
       this.windowStartTick = tick;
       this.switchCount = 0;
       this.lastActionKey = null;
+    }
+    if (this.lastActionKey === null) {
+      this.lastActionKey = nextActionKey;
+      return true;
     }
     if (this.lastActionKey === nextActionKey) {
       return true;

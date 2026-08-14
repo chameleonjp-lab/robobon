@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
     "check:build": "node scripts/check-build.mjs"
   },
   "engines": {
@@ -14,6 +15,7 @@
   },
   "devDependencies": {
     "typescript": "7.0.2",
-    "vite": "8.2.1"
+    "vite": "8.2.1",
+    "vitest": "4.1.10"
   }
 }

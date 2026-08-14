@@ -55,6 +55,12 @@ describe('rule selection', () => {
     expect(result.evaluations[0]?.conditions[0]).toMatchObject({ actual: true, expected: false, passed: false });
   });
 
+  it('rejects missing or unknown fact fields instead of treating them as false', () => {
+    const { enemyVisible: _ignored, ...incomplete } = facts;
+    expect(() => selectRule([retreat], incomplete as RuleFacts)).toThrow(/fact enemyVisible/);
+    expect(() => selectRule([retreat], { ...facts, unexpected: true } as RuleFacts)).toThrow(/unknown fact/);
+  });
+
   it('rejects ambiguous rule order and duplicate conditions', () => {
     expect(() => selectRule([{ ...retreat, priority: 1 }], facts)).toThrow(/vertical index/);
     expect(() =>
@@ -103,16 +109,17 @@ describe('action switch guard', () => {
     expect(guard.trySwitch(1, 'b')).toBe(true);
     expect(guard.trySwitch(2, 'c')).toBe(true);
     expect(guard.trySwitch(3, 'd')).toBe(true);
-    expect(guard.trySwitch(4, 'e')).toBe(false);
+    expect(guard.trySwitch(4, 'e')).toBe(true);
+    expect(guard.trySwitch(5, 'f')).toBe(false);
     expect(guard.switchesInWindow).toBe(MAX_ACTION_SWITCHES_PER_SECOND);
     expect(guard.trySwitch(60, 'e')).toBe(true);
-    expect(guard.switchesInWindow).toBe(1);
+    expect(guard.switchesInWindow).toBe(0);
   });
 
   it('does not consume switch budget when the same action is reevaluated', () => {
     const guard = new ActionSwitchGuard();
     expect(guard.trySwitch(0, 'retreat:retreat')).toBe(true);
     expect(guard.trySwitch(1, 'retreat:retreat')).toBe(true);
-    expect(guard.switchesInWindow).toBe(1);
+    expect(guard.switchesInWindow).toBe(0);
   });
 });

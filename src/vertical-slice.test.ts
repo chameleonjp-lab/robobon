@@ -5,9 +5,13 @@ import {
   commitRuleEdit,
   createRuleEditHistory,
   DEFAULT_RULES,
+  durationSecondsLabel,
   factsFromCombat,
   MAX_VERTICAL_SLICE_RULES,
   moveRuleCard,
+  parseRuleDurationSeconds,
+  updateRuleAction,
+  updateRuleCondition,
   undoRuleEdit,
 } from './vertical-slice';
 
@@ -86,5 +90,25 @@ describe('P1-09 vertical slice model', () => {
     expect(restoredOnce.rules[1]?.id).toBe('rule-fallback');
     expect(restoredTwice.rules).toEqual(DEFAULT_RULES);
     expect(undoRuleEdit(restoredTwice)).toEqual(restoredTwice);
+  });
+
+  it('rejects invalid condition and action values before they reach a rule', () => {
+    expect(updateRuleCondition(DEFAULT_RULES, 0, 'unknown-condition')).toBeNull();
+    expect(updateRuleAction(DEFAULT_RULES, 0, 'unknown-action')).toBeNull();
+    expect(updateRuleCondition(DEFAULT_RULES, 99, 'always')).toBeNull();
+  });
+
+  it('accepts bounded duration input and converts seconds to fixed ticks', () => {
+    expect(parseRuleDurationSeconds('0.1')).toEqual({ valid: true, durationTicks: 6 });
+    expect(parseRuleDurationSeconds('10.0')).toEqual({ valid: true, durationTicks: 600 });
+    expect(parseRuleDurationSeconds('')).toEqual({ valid: true, durationTicks: undefined });
+    expect(durationSecondsLabel(30)).toBe('0.5');
+  });
+
+  it('does not save out-of-range or fractional-tenth duration values', () => {
+    expect(parseRuleDurationSeconds('0')).toMatchObject({ valid: false });
+    expect(parseRuleDurationSeconds('10.1')).toMatchObject({ valid: false });
+    expect(parseRuleDurationSeconds('0.15')).toMatchObject({ valid: false });
+    expect(parseRuleDurationSeconds('not-a-number')).toMatchObject({ valid: false });
   });
 });

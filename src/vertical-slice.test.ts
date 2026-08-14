@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { createCombatState } from './simulation/combat';
-import { addRuleCard, DEFAULT_RULES, factsFromCombat, MAX_VERTICAL_SLICE_RULES } from './vertical-slice';
+import {
+  addRuleCard,
+  commitRuleEdit,
+  createRuleEditHistory,
+  DEFAULT_RULES,
+  factsFromCombat,
+  MAX_VERTICAL_SLICE_RULES,
+  moveRuleCard,
+  undoRuleEdit,
+} from './vertical-slice';
 
 function combatant(id: number, x: number) {
   return {
@@ -54,8 +63,28 @@ describe('P1-09 vertical slice model', () => {
   });
 
   it('creates a stable new id when an earlier card was deleted', () => {
-    const rules = addRuleCard(DEFAULT_RULES.filter((rule) => rule.id !== 'rule-2'));
-    expect(rules.at(-1)?.id).toBe('rule-1');
-    expect(new Set(rules.map((rule) => rule.id)).size).toBe(rules.length);
+    const rules = addRuleCard(addRuleCard(DEFAULT_RULES)).filter((rule) => rule.id !== 'rule-1');
+    const restored = addRuleCard(rules);
+    expect(restored.at(-1)?.id).toBe('rule-1');
+    expect(new Set(restored.map((rule) => rule.id)).size).toBe(restored.length);
+  });
+
+  it('moves cards without drag and always reassigns vertical priorities', () => {
+    const moved = moveRuleCard(DEFAULT_RULES, 2, -1);
+    expect(moved.map((rule) => rule.id)).toEqual(['rule-cool', 'rule-fallback', 'rule-fire']);
+    expect(moved.map((rule) => rule.priority)).toEqual([0, 1, 2]);
+  });
+
+  it('keeps an undo history across editor rerenders', () => {
+    const initial = createRuleEditHistory(DEFAULT_RULES);
+    const changed = commitRuleEdit(initial, moveRuleCard(DEFAULT_RULES, 2, -1));
+    const changedAgain = commitRuleEdit(changed, addRuleCard(changed.rules));
+    const restoredOnce = undoRuleEdit(changedAgain);
+    const restoredTwice = undoRuleEdit(restoredOnce);
+
+    expect(restoredOnce.rules).toHaveLength(DEFAULT_RULES.length);
+    expect(restoredOnce.rules[1]?.id).toBe('rule-fallback');
+    expect(restoredTwice.rules).toEqual(DEFAULT_RULES);
+    expect(undoRuleEdit(restoredTwice)).toEqual(restoredTwice);
   });
 });

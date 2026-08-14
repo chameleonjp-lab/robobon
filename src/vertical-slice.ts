@@ -17,6 +17,7 @@ const ARENA = { minX: 0, maxX: 640, minY: 0, maxY: 360 } as const;
 const RULE_EVALUATION_TICKS = 6;
 const MAX_BATTLE_TICKS = 20 * 60;
 const MAX_VERTICAL_SLICE_RULES = 8;
+const MAX_RULE_UNDO_STEPS = 20;
 const PLAYER_ID = 1;
 const ENEMY_ID = 2;
 
@@ -75,6 +76,11 @@ interface SliceElements {
   readonly content: HTMLElement;
 }
 
+interface RuleEditHistory {
+  readonly rules: readonly RuleCard[];
+  readonly undo: readonly RuleCard[][];
+}
+
 function make<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
   if (className) element.className = className;
@@ -103,6 +109,40 @@ function cloneRules(rules: readonly RuleCard[]): RuleCard[] {
     priority,
     conditions: rule.conditions.map((condition) => ({ ...condition })),
   }));
+}
+
+function sameRules(left: readonly RuleCard[], right: readonly RuleCard[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function createRuleEditHistory(rules: readonly RuleCard[]): RuleEditHistory {
+  return { rules: cloneRules(rules), undo: [] };
+}
+
+function commitRuleEdit(history: RuleEditHistory, nextRules: readonly RuleCard[]): RuleEditHistory {
+  const next = cloneRules(nextRules);
+  if (sameRules(history.rules, next)) return history;
+  return {
+    rules: next,
+    undo: [...history.undo, cloneRules(history.rules)].slice(-MAX_RULE_UNDO_STEPS),
+  };
+}
+
+function undoRuleEdit(history: RuleEditHistory): RuleEditHistory {
+  const previous = history.undo.at(-1);
+  if (!previous) return history;
+  return {
+    rules: cloneRules(previous),
+    undo: history.undo.slice(0, -1).map((rules) => cloneRules(rules)),
+  };
+}
+
+function moveRuleCard(rules: readonly RuleCard[], index: number, direction: -1 | 1): RuleCard[] {
+  const next = cloneRules(rules);
+  const target = index + direction;
+  if (target < 0 || target >= next.length) return next;
+  [next[index], next[target]] = [next[target], next[index]];
+  return cloneRules(next);
 }
 
 function nextRuleId(rules: readonly RuleCard[]): string {
@@ -258,9 +298,16 @@ function renderHeader(content: HTMLElement, phase: SlicePhase): void {
   content.append(heading);
 }
 
-function mountEditor(elements: SliceElements, rules: RuleCard[], openBattle: (nextRules: RuleCard[]) => void): void {
+function mountEditor(
+  elements: SliceElements,
+  rules: RuleCard[],
+  openBattle: (nextRules: RuleCard[]) => void,
+  history = createRuleEditHistory(rules),
+): void {
   elements.content.replaceChildren();
   renderHeader(elements.content, 'edit');
+
+  const currentRules = cloneRules(history.rules);
 
   const section = make('section', 'slice-panel');
   section.setAttribute('aria-labelledby', 'slice-editor-title');
@@ -271,18 +318,18 @@ function mountEditor(elements: SliceElements, rules: RuleCard[], openBattle: (ne
   note.textContent = `上にある規則から先に確認します。最大${MAX_VERTICAL_SLICE_RULES}枚です。まずは1枚だけ動かして、結果の違いを見ます。`;
   const capacity = make('p', 'slice-capacity');
   capacity.setAttribute('aria-live', 'polite');
-  capacity.textContent = `規則 ${rules.length} / ${MAX_VERTICAL_SLICE_RULES}`;
+  capacity.textContent = `規則 ${currentRules.length} / ${MAX_VERTICAL_SLICE_RULES}`;
+  const historyNote = make('p', 'slice-note');
+  historyNote.setAttribute('aria-live', 'polite');
+  historyNote.textContent = `変更履歴 ${history.undo.length}件。ドラッグ操作は使わず、確定した順番を保持します。`;
   const list = make('div', 'rule-list');
 
-  const move = (index: number, direction: -1 | 1): void => {
-    const next = cloneRules(rules);
-    const target = index + direction;
-    if (target < 0 || target >= next.length) return;
-    [next[index], next[target]] = [next[target], next[index]];
-    mountEditor(elements, next, openBattle);
+  const renderEdit = (nextRules: readonly RuleCard[]): void => {
+    const nextHistory = commitRuleEdit(history, nextRules);
+    mountEditor(elements, cloneRules(nextHistory.rules), openBattle, nextHistory);
   };
 
-  rules.forEach((rule, index) => {
+  currentRules.forEach((rule, index) => {
     const card = make('article', 'rule-card');
     const cardTitleId = `rule-card-title-${rule.id}`;
     const cardDescriptionId = `rule-card-description-${rule.id}`;
@@ -312,7 +359,7 @@ function mountEditor(elements: SliceElements, rules: RuleCard[], openBattle: (ne
         ...next[index],
         conditions: condition.value === 'always' ? [] : [{ id: condition.value as RuleCard['conditions'][number]['id'] }],
       };
-      mountEditor(elements, next, openBattle);
+      renderEdit(next);
     });
 
     const action = make('select', 'rule-select');
@@ -322,20 +369,20 @@ function mountEditor(elements: SliceElements, rules: RuleCard[], openBattle: (ne
     action.addEventListener('change', () => {
       const next = cloneRules(rules);
       next[index] = { ...next[index], action: action.value as RuleCard['action'] };
-      mountEditor(elements, next, openBattle);
+      renderEdit(next);
     });
 
     const up = button('上へ', 'slice-button slice-button--small');
     up.disabled = index === 0;
-    up.addEventListener('click', () => move(index, -1));
+    up.addEventListener('click', () => renderEdit(moveRuleCard(currentRules, index, -1)));
     const down = button('下へ', 'slice-button slice-button--small');
-    down.disabled = index === rules.length - 1;
-    down.addEventListener('click', () => move(index, 1));
+    down.disabled = index === currentRules.length - 1;
+    down.addEventListener('click', () => renderEdit(moveRuleCard(currentRules, index, 1)));
     const remove = button('削除', 'slice-button slice-button--small slice-button--quiet');
-    remove.disabled = rules.length <= 1;
+    remove.disabled = currentRules.length <= 1;
     remove.addEventListener('click', () => {
-      const next = cloneRules(rules).filter((_, itemIndex) => itemIndex !== index);
-      mountEditor(elements, next, openBattle);
+      const next = currentRules.filter((_, itemIndex) => itemIndex !== index);
+      renderEdit(next);
     });
 
     controls.append(condition, action, up, down, remove);
@@ -345,18 +392,25 @@ function mountEditor(elements: SliceElements, rules: RuleCard[], openBattle: (ne
 
   const actions = make('div', 'slice-actions');
   const add = button('規則を追加', 'slice-button slice-button--secondary');
-  add.disabled = rules.length >= MAX_VERTICAL_SLICE_RULES;
+  add.disabled = currentRules.length >= MAX_VERTICAL_SLICE_RULES;
   add.setAttribute('aria-describedby', 'rule-capacity-note');
-  add.addEventListener('click', () => mountEditor(elements, addRuleCard(rules), openBattle));
+  add.addEventListener('click', () => renderEdit(addRuleCard(currentRules)));
+  const undo = button('元に戻す', 'slice-button slice-button--quiet');
+  undo.disabled = history.undo.length === 0;
+  undo.setAttribute('aria-label', '直前の作戦編集を元に戻す');
+  undo.addEventListener('click', () => {
+    const previous = undoRuleEdit(history);
+    mountEditor(elements, cloneRules(previous.rules), openBattle, previous);
+  });
   const start = button('この作戦で開始', 'slice-button slice-button--primary');
-  start.addEventListener('click', () => openBattle(cloneRules(rules)));
+  start.addEventListener('click', () => openBattle(cloneRules(currentRules)));
   const capacityNote = make('p', 'slice-note');
   capacityNote.id = 'rule-capacity-note';
-  capacityNote.textContent = rules.length >= MAX_VERTICAL_SLICE_RULES
+  capacityNote.textContent = currentRules.length >= MAX_VERTICAL_SLICE_RULES
     ? `上限の${MAX_VERTICAL_SLICE_RULES}枚です。削除してから追加できます。`
     : 'カードはタップで選び、上下ボタンで優先順位を変えます。';
-  actions.append(add, start);
-  section.append(title, note, capacity, list, capacityNote, actions);
+  actions.append(add, undo, start);
+  section.append(title, note, capacity, historyNote, list, capacityNote, actions);
   elements.content.append(section);
 }
 
@@ -507,4 +561,14 @@ function mountVerticalSlice(root: HTMLElement): void {
   root.append(section);
 }
 
-export { DEFAULT_RULES, MAX_VERTICAL_SLICE_RULES, addRuleCard, factsFromCombat, mountVerticalSlice };
+export {
+  DEFAULT_RULES,
+  MAX_VERTICAL_SLICE_RULES,
+  addRuleCard,
+  commitRuleEdit,
+  createRuleEditHistory,
+  factsFromCombat,
+  mountVerticalSlice,
+  moveRuleCard,
+  undoRuleEdit,
+};

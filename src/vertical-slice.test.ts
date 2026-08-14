@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createCombatState } from './simulation/combat';
-import { DEFAULT_RULES, factsFromCombat } from './vertical-slice';
+import { addRuleCard, DEFAULT_RULES, factsFromCombat, MAX_VERTICAL_SLICE_RULES } from './vertical-slice';
 
 function combatant(id: number, x: number) {
   return {
@@ -43,5 +43,19 @@ describe('P1-09 vertical slice model', () => {
       lineOfSight: true,
     });
   });
-});
 
+  it('adds cards up to the eight-card editing cap and refuses a ninth', () => {
+    let rules = DEFAULT_RULES;
+    while (rules.length < MAX_VERTICAL_SLICE_RULES) rules = addRuleCard(rules);
+
+    expect(rules).toHaveLength(MAX_VERTICAL_SLICE_RULES);
+    expect(rules.map((rule, index) => rule.priority)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(addRuleCard(rules)).toEqual(rules);
+  });
+
+  it('creates a stable new id when an earlier card was deleted', () => {
+    const rules = addRuleCard(DEFAULT_RULES.filter((rule) => rule.id !== 'rule-2'));
+    expect(rules.at(-1)?.id).toBe('rule-1');
+    expect(new Set(rules.map((rule) => rule.id)).size).toBe(rules.length);
+  });
+});

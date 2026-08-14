@@ -244,6 +244,7 @@ h1 {
 
 .slice-description,
 .slice-note,
+.slice-capacity,
 .battle-active-rule,
 .analysis-outcome {
   margin: 0;
@@ -253,6 +254,12 @@ h1 {
 .slice-description,
 .slice-note {
   color: #c7d5df;
+}
+
+.slice-capacity {
+  color: #b8a1ff;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
 .slice-panel {
@@ -303,6 +310,13 @@ h1 {
   font-size: 0.72rem;
 }
 
+.rule-card__summary {
+  margin: 0;
+  color: #dce7ee;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .rule-card__controls .rule-select {
   flex: 1 1 9rem;
   min-width: 0;
@@ -336,6 +350,11 @@ h1 {
   border-color: #536b7d;
   color: #c7d5df;
   background: transparent;
+}
+
+.slice-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .battle-canvas {

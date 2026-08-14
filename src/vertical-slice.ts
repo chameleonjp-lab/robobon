@@ -16,6 +16,7 @@ type SlicePhase = 'edit' | 'battle' | 'analysis';
 const ARENA = { minX: 0, maxX: 640, minY: 0, maxY: 360 } as const;
 const RULE_EVALUATION_TICKS = 6;
 const MAX_BATTLE_TICKS = 20 * 60;
+const MAX_VERTICAL_SLICE_RULES = 8;
 const PLAYER_ID = 1;
 const ENEMY_ID = 2;
 
@@ -102,6 +103,23 @@ function cloneRules(rules: readonly RuleCard[]): RuleCard[] {
     priority,
     conditions: rule.conditions.map((condition) => ({ ...condition })),
   }));
+}
+
+function nextRuleId(rules: readonly RuleCard[]): string {
+  const used = new Set(rules.map((rule) => rule.id));
+  for (let index = 1; index <= MAX_VERTICAL_SLICE_RULES; index += 1) {
+    const candidate = `rule-${index}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `rule-${rules.length + 1}`;
+}
+
+/** Adds one editable card without allowing the UI to exceed the MVP cap. */
+function addRuleCard(rules: readonly RuleCard[]): RuleCard[] {
+  const next = cloneRules(rules);
+  if (next.length >= MAX_VERTICAL_SLICE_RULES) return next;
+  next.push({ id: nextRuleId(next), priority: next.length, conditions: [], action: 'stop' });
+  return next;
 }
 
 function makeCombatant(id: number, x: number): CombatantState {
@@ -227,7 +245,7 @@ function drawBattle(context: CanvasRenderingContext2D, state: CombatState, activ
 function renderHeader(content: HTMLElement, phase: SlicePhase): void {
   const heading = make('header', 'slice-heading');
   const eyebrow = make('p', 'eyebrow');
-  eyebrow.textContent = 'P1-09 / GRAY VERTICAL SLICE';
+  eyebrow.textContent = 'P1-09 / P2-10 / GRAY VERTICAL SLICE';
   const title = make('h1');
   title.textContent = 'ロボボン';
   const description = make('p', 'slice-description');
@@ -250,7 +268,10 @@ function mountEditor(elements: SliceElements, rules: RuleCard[], openBattle: (ne
   title.id = 'slice-editor-title';
   title.textContent = '作戦編集';
   const note = make('p', 'slice-note');
-  note.textContent = '上にある規則から先に確認します。まずは1枚だけ動かして、結果の違いを見ます。';
+  note.textContent = `上にある規則から先に確認します。最大${MAX_VERTICAL_SLICE_RULES}枚です。まずは1枚だけ動かして、結果の違いを見ます。`;
+  const capacity = make('p', 'slice-capacity');
+  capacity.setAttribute('aria-live', 'polite');
+  capacity.textContent = `規則 ${rules.length} / ${MAX_VERTICAL_SLICE_RULES}`;
   const list = make('div', 'rule-list');
 
   const move = (index: number, direction: -1 | 1): void => {
@@ -263,13 +284,22 @@ function mountEditor(elements: SliceElements, rules: RuleCard[], openBattle: (ne
 
   rules.forEach((rule, index) => {
     const card = make('article', 'rule-card');
+    const cardTitleId = `rule-card-title-${rule.id}`;
+    const cardDescriptionId = `rule-card-description-${rule.id}`;
     card.dataset.ruleId = rule.id;
+    card.setAttribute('aria-labelledby', cardTitleId);
+    card.setAttribute('aria-describedby', cardDescriptionId);
     const cardTop = make('div', 'rule-card__top');
     const number = make('span', 'rule-card__number');
     number.textContent = `優先 ${index + 1}`;
     const id = make('span', 'rule-card__id');
+    id.id = cardTitleId;
     id.textContent = rule.id;
     cardTop.append(number, id);
+
+    const summary = make('p', 'rule-card__summary');
+    summary.id = cardDescriptionId;
+    summary.textContent = `条件: ${CONDITION_LABELS[rule.conditions[0]?.id ?? 'always']} / 行動: ${ACTION_LABELS[rule.action]}`;
 
     const controls = make('div', 'rule-card__controls');
     const condition = make('select', 'rule-select');
@@ -309,21 +339,24 @@ function mountEditor(elements: SliceElements, rules: RuleCard[], openBattle: (ne
     });
 
     controls.append(condition, action, up, down, remove);
-    card.append(cardTop, controls);
+    card.append(cardTop, summary, controls);
     list.append(card);
   });
 
   const actions = make('div', 'slice-actions');
   const add = button('規則を追加', 'slice-button slice-button--secondary');
-  add.addEventListener('click', () => {
-    const next = cloneRules(rules);
-    next.push({ id: `rule-${next.length + 1}`, priority: next.length, conditions: [], action: 'stop' });
-    mountEditor(elements, next, openBattle);
-  });
+  add.disabled = rules.length >= MAX_VERTICAL_SLICE_RULES;
+  add.setAttribute('aria-describedby', 'rule-capacity-note');
+  add.addEventListener('click', () => mountEditor(elements, addRuleCard(rules), openBattle));
   const start = button('この作戦で開始', 'slice-button slice-button--primary');
   start.addEventListener('click', () => openBattle(cloneRules(rules)));
+  const capacityNote = make('p', 'slice-note');
+  capacityNote.id = 'rule-capacity-note';
+  capacityNote.textContent = rules.length >= MAX_VERTICAL_SLICE_RULES
+    ? `上限の${MAX_VERTICAL_SLICE_RULES}枚です。削除してから追加できます。`
+    : 'カードはタップで選び、上下ボタンで優先順位を変えます。';
   actions.append(add, start);
-  section.append(title, note, list, actions);
+  section.append(title, note, capacity, list, capacityNote, actions);
   elements.content.append(section);
 }
 
@@ -474,4 +507,4 @@ function mountVerticalSlice(root: HTMLElement): void {
   root.append(section);
 }
 
-export { DEFAULT_RULES, factsFromCombat, mountVerticalSlice };
+export { DEFAULT_RULES, MAX_VERTICAL_SLICE_RULES, addRuleCard, factsFromCombat, mountVerticalSlice };

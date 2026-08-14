@@ -18,6 +18,8 @@ const RULE_EVALUATION_TICKS = 6;
 const MAX_BATTLE_TICKS = 20 * 60;
 const MAX_VERTICAL_SLICE_RULES = 8;
 const MAX_RULE_UNDO_STEPS = 20;
+const MIN_DURATION_TICKS = 6;
+const MAX_DURATION_TICKS = 60 * 10;
 const PLAYER_ID = 1;
 const ENEMY_ID = 2;
 
@@ -81,6 +83,10 @@ interface RuleEditHistory {
   readonly undo: readonly RuleCard[][];
 }
 
+type DurationParseResult =
+  | { readonly valid: true; readonly durationTicks: number | undefined }
+  | { readonly valid: false; readonly message: string };
+
 function make<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
   if (className) element.className = className;
@@ -143,6 +149,45 @@ function moveRuleCard(rules: readonly RuleCard[], index: number, direction: -1 |
   if (target < 0 || target >= next.length) return next;
   [next[index], next[target]] = [next[target], next[index]];
   return cloneRules(next);
+}
+
+function updateRuleCondition(rules: readonly RuleCard[], index: number, value: string): RuleCard[] | null {
+  if (!Number.isInteger(index) || index < 0 || index >= rules.length) return null;
+  if (value !== 'always' && !Object.hasOwn(CONDITION_LABELS, value)) return null;
+  const next = cloneRules(rules);
+  next[index] = {
+    ...next[index],
+    conditions: value === 'always' ? [] : [{ id: value as RuleCard['conditions'][number]['id'] }],
+  };
+  return next;
+}
+
+function updateRuleAction(rules: readonly RuleCard[], index: number, value: string): RuleCard[] | null {
+  if (!Number.isInteger(index) || index < 0 || index >= rules.length) return null;
+  if (!Object.hasOwn(ACTION_LABELS, value)) return null;
+  const next = cloneRules(rules);
+  next[index] = { ...next[index], action: value as RuleCard['action'] };
+  return next;
+}
+
+function parseRuleDurationSeconds(rawValue: string): DurationParseResult {
+  const raw = rawValue.trim();
+  if (raw === '') return { valid: true, durationTicks: undefined };
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds)) return { valid: false, message: '数字を入力してください。' };
+  const tenths = Math.round(seconds * 10);
+  if (Math.abs(seconds * 10 - tenths) > 1e-9) {
+    return { valid: false, message: '0.1秒単位で入力してください。' };
+  }
+  const durationTicks = tenths * 6;
+  if (!Number.isSafeInteger(durationTicks) || durationTicks < MIN_DURATION_TICKS || durationTicks > MAX_DURATION_TICKS) {
+    return { valid: false, message: '0.1〜10.0秒の範囲で入力してください。' };
+  }
+  return { valid: true, durationTicks };
+}
+
+function durationSecondsLabel(durationTicks: number | undefined): string {
+  return durationTicks === undefined ? '' : (durationTicks / 60).toFixed(1);
 }
 
 function nextRuleId(rules: readonly RuleCard[]): string {
@@ -354,12 +399,8 @@ function mountEditor(
     optionList(condition, Object.keys(CONDITION_LABELS), CONDITION_LABELS);
     condition.value = rule.conditions[0]?.id ?? 'always';
     condition.addEventListener('change', () => {
-      const next = cloneRules(rules);
-      next[index] = {
-        ...next[index],
-        conditions: condition.value === 'always' ? [] : [{ id: condition.value as RuleCard['conditions'][number]['id'] }],
-      };
-      renderEdit(next);
+      const next = updateRuleCondition(currentRules, index, condition.value);
+      if (next) renderEdit(next);
     });
 
     const action = make('select', 'rule-select');
@@ -367,8 +408,43 @@ function mountEditor(
     optionList(action, Object.keys(ACTION_LABELS), ACTION_LABELS);
     action.value = rule.action;
     action.addEventListener('change', () => {
-      const next = cloneRules(rules);
-      next[index] = { ...next[index], action: action.value as RuleCard['action'] };
+      const next = updateRuleAction(currentRules, index, action.value);
+      if (next) renderEdit(next);
+    });
+
+    const durationField = make('label', 'rule-number-field');
+    const durationCaption = make('span');
+    durationCaption.textContent = '継続時間（秒）';
+    const duration = make('input', 'rule-number');
+    duration.type = 'number';
+    duration.inputMode = 'decimal';
+    duration.min = '0.1';
+    duration.max = '10.0';
+    duration.step = '0.1';
+    duration.placeholder = '標準';
+    duration.value = durationSecondsLabel(rule.durationTicks);
+    const durationHelp = make('span', 'rule-input-help');
+    durationHelp.textContent = '空欄は行動ごとの標準時間';
+    const durationError = make('span', 'rule-input-error');
+    durationError.id = `rule-duration-error-${rule.id}`;
+    duration.setAttribute('aria-label', `${index + 1}枚目の継続時間（秒）`);
+    duration.setAttribute('aria-describedby', durationError.id);
+    duration.addEventListener('change', () => {
+      const result = parseRuleDurationSeconds(duration.value);
+      if (!result.valid) {
+        duration.setCustomValidity(result.message);
+        duration.setAttribute('aria-invalid', 'true');
+        durationError.textContent = result.message;
+        return;
+      }
+      duration.setCustomValidity('');
+      duration.removeAttribute('aria-invalid');
+      durationError.textContent = '';
+      const next = cloneRules(currentRules);
+      const { durationTicks: _previousDuration, ...withoutDuration } = next[index];
+      next[index] = result.durationTicks === undefined
+        ? withoutDuration
+        : { ...withoutDuration, durationTicks: result.durationTicks };
       renderEdit(next);
     });
 
@@ -385,7 +461,7 @@ function mountEditor(
       renderEdit(next);
     });
 
-    controls.append(condition, action, up, down, remove);
+    controls.append(condition, action, durationField, up, down, remove);
     card.append(cardTop, summary, controls);
     list.append(card);
   });
@@ -567,8 +643,12 @@ export {
   addRuleCard,
   commitRuleEdit,
   createRuleEditHistory,
+  durationSecondsLabel,
   factsFromCombat,
   mountVerticalSlice,
   moveRuleCard,
+  parseRuleDurationSeconds,
+  updateRuleAction,
+  updateRuleCondition,
   undoRuleEdit,
 };

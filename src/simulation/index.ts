@@ -1,4 +1,5 @@
 export * from './clock';
+export * from './combat';
 export * from './fixed-point';
 export * from './geometry';
 export * from './motion';

@@ -370,7 +370,7 @@ function drawScorchMark(context: CanvasRenderingContext2D, x: number, y: number,
 }
 
 function drawScorchMarks(context: CanvasRenderingContext2D, state: CombatState): void {
-  const hits = state.events.filter((event) => event.type === 'HIT_CONFIRMED').slice(-24);
+  const hits = state.events.slice(-64).filter((event) => event.type === 'HIT_CONFIRMED').slice(-24);
   hits.forEach((event, index) => {
     const target = combatantById(state, event.targetId);
     if (target) drawScorchMark(context, target.x, target.y, index);
@@ -431,7 +431,7 @@ function drawImpactEffect(
     context.lineTo(target.x + Math.cos(angle) * length, target.y + Math.sin(angle) * length);
     context.stroke();
   }
-  if (mode === 'full' && isEffectVisible(age, 0, EFFECT_WINDOWS.smoke)) {
+  if (mode === 'full' && age <= EFFECT_WINDOWS.smoke) {
     context.globalAlpha = Math.max(0, 0.28 - age * 0.025);
     context.fillStyle = '#AAB7C4';
     for (const [offsetX, offsetY, radius] of [[-6, -8, 6], [5, -5, 5], [3, 5, 7]] as const) {

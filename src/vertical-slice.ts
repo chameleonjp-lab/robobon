@@ -593,10 +593,13 @@ function mountProgramStoragePanel(
         setStorageStatus(elements, `読み込めません: ${parsed.error}`);
         return;
       }
-      return elements.storage.save(parsed.program).then(() => {
-        elements.program = parsed.program;
-        setStorageStatus(elements, parsed.migrated ? '旧形式を検査して新形式へ移行し、保存しました。' : 'JSONを検査して保存しました。');
-        openEditor(parsed.program);
+      return flushPendingProgramSave(elements).then((saved) => {
+        if (!saved) return;
+        return elements.storage.save(parsed.program).then(() => {
+          elements.program = parsed.program;
+          setStorageStatus(elements, parsed.migrated ? '旧形式を検査して新形式へ移行し、保存しました。' : 'JSONを検査して保存しました。');
+          openEditor(parsed.program);
+        });
       });
     }).catch((error: unknown) => {
       setStorageStatus(elements, `読み込めません: ${storageError(error)} 現在の保存は変更していません。`);

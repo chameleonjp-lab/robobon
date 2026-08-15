@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EFFECT_WINDOWS, directionToTarget, isEffectVisible, robotSideForId, robotSilhouette } from './battle-renderer';
+import { EFFECT_WINDOWS, battleQualitySettings, directionToTarget, isEffectVisible, robotSideForId, robotSilhouette } from './battle-renderer';
 
 describe('P3-15 representative battle renderer contract', () => {
   it('keeps ally and enemy silhouettes distinct and deterministic', () => {
@@ -39,5 +39,11 @@ describe('P3-15 representative battle renderer contract', () => {
     expect(isEffectVisible(13, 10, EFFECT_WINDOWS.muzzleFlash)).toBe(true);
     expect(isEffectVisible(14, 10, EFFECT_WINDOWS.muzzleFlash)).toBe(false);
     expect(isEffectVisible(9, 10, EFFECT_WINDOWS.impact)).toBe(false);
+  });
+
+  it('reduces decoration without changing the quality-independent combat contract', () => {
+    expect(battleQualitySettings('high')).toEqual({ scorchMarkLimit: 24, effects: 'full' });
+    expect(battleQualitySettings('medium')).toEqual({ scorchMarkLimit: 12, effects: 'full' });
+    expect(battleQualitySettings('low')).toEqual({ scorchMarkLimit: 0, effects: 'reduced' });
   });
 });

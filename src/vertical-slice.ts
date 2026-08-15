@@ -10,6 +10,7 @@ import {
 import { headingToPoint } from './simulation/sensor';
 import { selectRule, type RuleCard, type RuleFacts, type RuleSelection, validateRuleSet } from './simulation/rules';
 import { squaredDistance } from './simulation/geometry';
+import { drawBattleScene } from './rendering/battle-renderer';
 import {
   MAX_PROGRAM_BYTES,
   MAX_PROGRAM_NAME_LENGTH,
@@ -366,49 +367,7 @@ function enemyCommand(state: CombatState): CombatCommand | null {
 }
 
 function drawBattle(context: CanvasRenderingContext2D, state: CombatState, activeRuleId: string | null): void {
-  const width = context.canvas.width;
-  const height = context.canvas.height;
-  context.clearRect(0, 0, width, height);
-  context.fillStyle = '#0b1118';
-  context.fillRect(0, 0, width, height);
-  context.strokeStyle = 'rgb(159 196 214 / 18%)';
-  context.lineWidth = 1;
-  for (let x = 0; x <= width; x += 40) {
-    context.beginPath();
-    context.moveTo(x, 0);
-    context.lineTo(x, height);
-    context.stroke();
-  }
-  for (let y = 0; y <= height; y += 40) {
-    context.beginPath();
-    context.moveTo(0, y);
-    context.lineTo(width, y);
-    context.stroke();
-  }
-  context.strokeStyle = '#8bb4c7';
-  context.strokeRect(1, 1, width - 2, height - 2);
-
-  for (const projectile of state.projectiles) {
-    context.fillStyle = projectile.ownerId === PLAYER_ID ? '#d9ffff' : '#ffd3a8';
-    context.beginPath();
-    context.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
-    context.fill();
-  }
-
-  for (const combatant of state.combatants) {
-    context.save();
-    context.globalAlpha = combatant.active ? 1 : 0.28;
-    context.fillStyle = combatant.id === PLAYER_ID ? '#36c6d2' : '#f39461';
-    context.beginPath();
-    context.arc(combatant.x, combatant.y, combatant.radius, 0, Math.PI * 2);
-    context.fill();
-    context.strokeStyle = '#f8fafc';
-    context.lineWidth = activeRuleId && combatant.id === PLAYER_ID ? 3 : 1;
-    context.stroke();
-    context.fillStyle = '#0b1118';
-    context.fillRect(combatant.x - 5, combatant.y - 3, 10, 6);
-    context.restore();
-  }
+  drawBattleScene(context, state, activeRuleId);
 }
 
 function renderHeader(content: HTMLElement, phase: SlicePhase): void {

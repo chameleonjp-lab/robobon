@@ -499,6 +499,7 @@ h1 {
   height: auto;
   max-height: 22rem;
   border: 1px solid #456174;
+  border-radius: 0.55rem;
   background: #0b1118;
   image-rendering: auto;
 }

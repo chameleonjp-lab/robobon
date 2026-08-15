@@ -7,6 +7,7 @@ import {
   DEFAULT_RULES,
   durationSecondsLabel,
   factsFromCombat,
+  inspectPreBattleRules,
   MAX_VERTICAL_SLICE_RULES,
   moveRuleCard,
   parseRuleDurationSeconds,
@@ -110,5 +111,26 @@ describe('P1-09 vertical slice model', () => {
     expect(parseRuleDurationSeconds('10.1')).toMatchObject({ valid: false });
     expect(parseRuleDurationSeconds('0.15')).toMatchObject({ valid: false });
     expect(parseRuleDurationSeconds('not-a-number')).toMatchObject({ valid: false });
+  });
+
+  it('allows a complete default作戦 and reports no pre-battle issues', () => {
+    expect(inspectPreBattleRules(DEFAULT_RULES)).toEqual({ canStart: true, issues: [] });
+  });
+
+  it('blocks malformed作戦 but keeps strategic warnings separate', () => {
+    const malformed = [{ ...DEFAULT_RULES[0], action: 'invalid-action' }] as never;
+    const blocked = inspectPreBattleRules(malformed);
+    expect(blocked.canStart).toBe(false);
+    expect(blocked.issues[0]).toMatchObject({ severity: 'error', code: 'invalid-rule-set' });
+
+    const noFallback = DEFAULT_RULES.map((rule) => ({
+      ...rule,
+      conditions: rule.conditions.length > 0 ? rule.conditions : [{ id: 'enemy-visible' as const }],
+    }));
+    const warned = inspectPreBattleRules(noFallback);
+    expect(warned.canStart).toBe(true);
+    expect(warned.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ severity: 'warning', code: 'no-fallback' }),
+    ]));
   });
 });

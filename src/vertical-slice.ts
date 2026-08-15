@@ -8,7 +8,7 @@ import {
   type WeaponSpec,
 } from './simulation/combat';
 import { headingToPoint } from './simulation/sensor';
-import { selectRule, type RuleCard, type RuleFacts, type RuleSelection } from './simulation/rules';
+import { selectRule, type RuleCard, type RuleFacts, type RuleSelection, validateRuleSet } from './simulation/rules';
 import { squaredDistance } from './simulation/geometry';
 
 type SlicePhase = 'edit' | 'battle' | 'analysis';
@@ -86,6 +86,19 @@ interface RuleEditHistory {
 type DurationParseResult =
   | { readonly valid: true; readonly durationTicks: number | undefined }
   | { readonly valid: false; readonly message: string };
+
+type PreBattleIssueSeverity = 'error' | 'warning';
+
+interface PreBattleIssue {
+  readonly severity: PreBattleIssueSeverity;
+  readonly code: string;
+  readonly message: string;
+}
+
+interface PreBattleCheck {
+  readonly canStart: boolean;
+  readonly issues: readonly PreBattleIssue[];
+}
 
 function make<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
@@ -188,6 +201,59 @@ function parseRuleDurationSeconds(rawValue: string): DurationParseResult {
 
 function durationSecondsLabel(durationTicks: number | undefined): string {
   return durationTicks === undefined ? '' : (durationTicks / 60).toFixed(1);
+}
+
+function inspectPreBattleRules(rules: readonly RuleCard[]): PreBattleCheck {
+  const issues: PreBattleIssue[] = [];
+  if (!Array.isArray(rules) || rules.length === 0) {
+    return {
+      canStart: false,
+      issues: [{ severity: 'error', code: 'no-rules', message: '規則が1枚もありません。1枚以上追加してください。' }],
+    };
+  }
+  if (rules.length > MAX_VERTICAL_SLICE_RULES) {
+    issues.push({ severity: 'error', code: 'too-many-rules', message: `規則は${MAX_VERTICAL_SLICE_RULES}枚までです。` });
+  }
+  try {
+    validateRuleSet(rules);
+  } catch (error) {
+    issues.push({
+      severity: 'error',
+      code: 'invalid-rule-set',
+      message: error instanceof Error ? `この作戦は実行できません: ${error.message}` : 'この作戦は実行できません。入力を確認してください。',
+    });
+    return { canStart: false, issues };
+  }
+
+  if (!rules.some((rule) => rule.conditions.length === 0)) {
+    issues.push({ severity: 'warning', code: 'no-fallback', message: 'どの条件にも当てはまらない時の行動がありません。何もしない刻みが発生します。' });
+  }
+  if (!rules.some((rule) => rule.action === 'fire-pulse')) {
+    issues.push({ severity: 'warning', code: 'no-fire', message: '発射する規則がありません。攻撃せずに戦闘が終わる可能性があります。' });
+  }
+  return { canStart: !issues.some((issue) => issue.severity === 'error'), issues };
+}
+
+function renderPreBattleCheck(check: PreBattleCheck): HTMLElement {
+  const panel = make('div', 'preflight-panel');
+  panel.setAttribute('aria-labelledby', 'preflight-title');
+  const title = make('h3');
+  title.id = 'preflight-title';
+  title.textContent = '開始前検査';
+  const status = make('p', check.canStart ? 'preflight-status preflight-status--ready' : 'preflight-status preflight-status--blocked');
+  status.textContent = check.canStart ? '開始できます。' : '開始できません。修正が必要です。';
+  panel.append(title, status);
+  if (check.issues.length > 0) {
+    const list = make('ul', 'preflight-list');
+    for (const issue of check.issues) {
+      const item = make('li', `preflight-issue preflight-issue--${issue.severity}`);
+      item.textContent = `${issue.severity === 'error' ? '実行不能' : '注意'}: ${issue.message}`;
+      if (issue.severity === 'error') item.setAttribute('role', 'alert');
+      list.append(item);
+    }
+    panel.append(list);
+  }
+  return panel;
 }
 
 function nextRuleId(rules: readonly RuleCard[]): string {
@@ -353,6 +419,7 @@ function mountEditor(
   renderHeader(elements.content, 'edit');
 
   const currentRules = cloneRules(history.rules);
+  const preflight = inspectPreBattleRules(currentRules);
 
   const section = make('section', 'slice-panel');
   section.setAttribute('aria-labelledby', 'slice-editor-title');
@@ -466,6 +533,8 @@ function mountEditor(
     list.append(card);
   });
 
+  const preflightPanel = renderPreBattleCheck(preflight);
+
   const actions = make('div', 'slice-actions');
   const add = button('規則を追加', 'slice-button slice-button--secondary');
   add.disabled = currentRules.length >= MAX_VERTICAL_SLICE_RULES;
@@ -479,6 +548,8 @@ function mountEditor(
     mountEditor(elements, cloneRules(previous.rules), openBattle, previous);
   });
   const start = button('この作戦で開始', 'slice-button slice-button--primary');
+  start.disabled = !preflight.canStart;
+  start.setAttribute('aria-describedby', 'preflight-title');
   start.addEventListener('click', () => openBattle(cloneRules(currentRules)));
   const capacityNote = make('p', 'slice-note');
   capacityNote.id = 'rule-capacity-note';
@@ -486,7 +557,7 @@ function mountEditor(
     ? `上限の${MAX_VERTICAL_SLICE_RULES}枚です。削除してから追加できます。`
     : 'カードはタップで選び、上下ボタンで優先順位を変えます。';
   actions.append(add, undo, start);
-  section.append(title, note, capacity, historyNote, list, capacityNote, actions);
+  section.append(title, note, capacity, historyNote, list, preflightPanel, capacityNote, actions);
   elements.content.append(section);
 }
 
@@ -648,6 +719,8 @@ export {
   mountVerticalSlice,
   moveRuleCard,
   parseRuleDurationSeconds,
+  inspectPreBattleRules,
+  renderPreBattleCheck,
   updateRuleAction,
   updateRuleCondition,
   undoRuleEdit,

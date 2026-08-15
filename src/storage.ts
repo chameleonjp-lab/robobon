@@ -334,9 +334,20 @@ function openDatabase(): Promise<IDBDatabase> {
 class IndexedDbProgramStore implements ProgramStore {
   readonly mode = 'indexeddb' as const;
   private readonly database = openDatabase();
+  constructor(private readonly fallback: ProgramStore) {}
+
+  private async databaseOrFallback(): Promise<IDBDatabase | ProgramStore> {
+    try {
+      return await this.database;
+    } catch {
+      return this.fallback;
+    }
+  }
 
   async list(): Promise<readonly ProgramDocument[]> {
-    const database = await this.database;
+    const databaseOrFallback = await this.databaseOrFallback();
+    if ('mode' in databaseOrFallback) return databaseOrFallback.list();
+    const database = databaseOrFallback;
     const transaction = database.transaction([REVISION_STORE, CURRENT_STORE], 'readonly');
     const pointers = await requestResult(transaction.objectStore(CURRENT_STORE).getAll()) as CurrentPointer[];
     const revisions = transaction.objectStore(REVISION_STORE);
@@ -352,7 +363,9 @@ class IndexedDbProgramStore implements ProgramStore {
   }
 
   async get(id: string): Promise<ProgramDocument | null> {
-    const database = await this.database;
+    const databaseOrFallback = await this.databaseOrFallback();
+    if ('mode' in databaseOrFallback) return databaseOrFallback.get(id);
+    const database = databaseOrFallback;
     const transaction = database.transaction([REVISION_STORE, CURRENT_STORE], 'readonly');
     const pointer = await requestResult(transaction.objectStore(CURRENT_STORE).get(id)) as CurrentPointer | undefined;
     if (!pointer) return null;
@@ -366,7 +379,9 @@ class IndexedDbProgramStore implements ProgramStore {
   async save(program: ProgramDocument): Promise<void> {
     const checked = validateProgramDocument(program);
     if (!checked.ok) throw new Error(checked.error);
-    const database = await this.database;
+    const databaseOrFallback = await this.databaseOrFallback();
+    if ('mode' in databaseOrFallback) return databaseOrFallback.save(checked.program);
+    const database = databaseOrFallback;
     const transaction = database.transaction([REVISION_STORE, CURRENT_STORE], 'readwrite');
     const currentStore = transaction.objectStore(CURRENT_STORE);
     const revisionStore = transaction.objectStore(REVISION_STORE);
@@ -388,7 +403,9 @@ class IndexedDbProgramStore implements ProgramStore {
   }
 
   async delete(id: string): Promise<void> {
-    const database = await this.database;
+    const databaseOrFallback = await this.databaseOrFallback();
+    if ('mode' in databaseOrFallback) return databaseOrFallback.delete(id);
+    const database = databaseOrFallback;
     const transaction = database.transaction([REVISION_STORE, CURRENT_STORE], 'readwrite');
     const revisions = await requestResult(transaction.objectStore(REVISION_STORE).getAll()) as StoredRevision[];
     const revisionStore = transaction.objectStore(REVISION_STORE);
@@ -402,14 +419,18 @@ class IndexedDbProgramStore implements ProgramStore {
   }
 }
 
-export function createProgramStore(): ProgramStore {
-  if (typeof globalThis.indexedDB !== 'undefined') return new IndexedDbProgramStore();
+function createFallbackProgramStore(): ProgramStore {
   try {
     if (typeof globalThis.localStorage !== 'undefined') return new LocalStorageProgramStore(globalThis.localStorage);
   } catch {
     // Private browsing or a disabled storage area falls through to memory.
   }
   return new MemoryProgramStore();
+}
+
+export function createProgramStore(): ProgramStore {
+  if (typeof globalThis.indexedDB !== 'undefined') return new IndexedDbProgramStore(createFallbackProgramStore());
+  return createFallbackProgramStore();
 }
 
 export { MemoryProgramStore };

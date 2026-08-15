@@ -456,6 +456,18 @@ function scheduleProgramSave(elements: SliceElements): void {
   }, 500);
 }
 
+function cancelPendingProgramSave(elements: SliceElements): void {
+  if (elements.saveTimer === undefined) return;
+  window.clearTimeout(elements.saveTimer);
+  elements.saveTimer = undefined;
+}
+
+async function flushPendingProgramSave(elements: SliceElements): Promise<boolean> {
+  if (elements.saveTimer === undefined) return true;
+  cancelPendingProgramSave(elements);
+  return saveCurrentProgram(elements);
+}
+
 async function refreshProgramOptions(elements: SliceElements, select: HTMLSelectElement): Promise<void> {
   try {
     const programs = await elements.storage.list();
@@ -550,6 +562,7 @@ function mountProgramStoragePanel(
   });
   const deleteButton = button('端末保存を削除', 'slice-button slice-button--quiet');
   deleteButton.addEventListener('click', () => {
+    cancelPendingProgramSave(elements);
     void elements.storage.delete(elements.program.id).then(() => {
       setStorageStatus(elements, '端末に保存したこの作戦を削除しました。編集中の作戦は残っています。');
       void refreshProgramOptions(elements, savedSelect);
@@ -599,7 +612,10 @@ function mountProgramStoragePanel(
   savedSelect.addEventListener('change', () => {
     const id = savedSelect.value;
     if (!id) return;
-    void elements.storage.get(id).then((program) => {
+    void flushPendingProgramSave(elements).then((saved) => {
+      if (!saved) return null;
+      return elements.storage.get(id);
+    }).then((program) => {
       if (!program) {
         setStorageStatus(elements, '選んだ作戦は見つかりません。');
         return;

@@ -250,6 +250,7 @@ class LocalStorageProgramStore implements ProgramStore {
   private read(): ProgramDocument[] {
     const raw = this.storage.getItem(LOCAL_STORAGE_KEY);
     if (!raw) return [];
+    if (byteLength(raw) > MAX_PROGRAM_BYTES) throw new Error('端末保存が256KBを超えています。書き出しを確認してから再試行してください。');
     const parsed = parseProgramJson(raw);
     if (parsed.ok) return [parsed.program];
     let values: unknown;

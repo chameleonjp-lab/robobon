@@ -1,4 +1,4 @@
-import type { CombatState, CombatantState, ProjectileState } from '../simulation/combat';
+import { MAX_HEAT, type CombatEvent, type CombatState, type CombatantState, type ProjectileState } from '../simulation/combat';
 
 /** The first representative arena uses a fixed, full-scene camera. */
 export const BATTLE_RENDER_SIZE = { width: 640, height: 360 } as const;
@@ -13,6 +13,18 @@ export interface RenderPoint {
 export interface DirectionToTarget extends RenderPoint {
   readonly angle: number;
 }
+
+export type BattleEffectMode = 'full' | 'reduced';
+
+export interface BattleRenderOptions {
+  readonly effects?: BattleEffectMode;
+}
+
+export const EFFECT_WINDOWS = {
+  muzzleFlash: 3,
+  impact: 8,
+  smoke: 9,
+} as const;
 
 const COLORS = {
   background: '#0B1118',
@@ -82,6 +94,11 @@ export function directionToTarget(
 
 function clampUnit(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+export function isEffectVisible(currentTick: number, eventTick: number, maxAge: number): boolean {
+  const age = currentTick - eventTick;
+  return age >= 0 && age <= maxAge;
 }
 
 function pathFromPoints(context: CanvasRenderingContext2D, points: readonly RenderPoint[]): void {
@@ -180,6 +197,38 @@ function drawHealthBar(context: CanvasRenderingContext2D, combatant: CombatantSt
   context.strokeStyle = COLORS.text;
   context.lineWidth = 1;
   context.strokeRect(combatant.x - width / 2, combatant.y - 34, width, 5);
+
+  const heatRatio = clampUnit(combatant.heat / MAX_HEAT);
+  context.fillStyle = 'rgb(11 17 24 / 88%)';
+  context.fillRect(combatant.x - width / 2, combatant.y - 27, width, 4);
+  context.fillStyle = combatant.overheatRemaining > 0 ? '#FF5D6C' : '#FFB84D';
+  context.fillRect(combatant.x - width / 2, combatant.y - 27, width * heatRatio, 4);
+  context.strokeStyle = COLORS.text;
+  context.strokeRect(combatant.x - width / 2, combatant.y - 27, width, 4);
+}
+
+function drawHeatWarning(context: CanvasRenderingContext2D, combatant: CombatantState): void {
+  if (combatant.heat < 70 && combatant.overheatRemaining === 0) return;
+  context.save();
+  context.strokeStyle = combatant.overheatRemaining > 0 ? '#FF5D6C' : '#FFB84D';
+  context.lineWidth = 2;
+  context.setLineDash([4, 3]);
+  context.beginPath();
+  context.arc(combatant.x, combatant.y, 31, -Math.PI * 0.82, -Math.PI * 0.18);
+  context.stroke();
+  context.setLineDash([]);
+  context.fillStyle = context.strokeStyle;
+  context.beginPath();
+  context.moveTo(combatant.x + 25, combatant.y - 25);
+  context.lineTo(combatant.x + 34, combatant.y - 25);
+  context.lineTo(combatant.x + 29.5, combatant.y - 17);
+  context.closePath();
+  context.fill();
+  context.fillStyle = COLORS.mechanic;
+  context.font = '700 8px ui-monospace, SFMono-Regular, Menlo, monospace';
+  context.textAlign = 'center';
+  context.fillText('!', combatant.x + 29.5, combatant.y - 19.5);
+  context.restore();
 }
 
 function drawRobot(
@@ -196,6 +245,7 @@ function drawRobot(
 
   drawFloorMarker(context, side, combatant.x, combatant.y, side === 'ally' && activeRuleId !== null);
   drawHealthBar(context, combatant, side);
+  drawHeatWarning(context, combatant);
 
   context.save();
   context.globalAlpha = active ? 1 : 0.3;
@@ -300,6 +350,119 @@ function drawProjectile(context: CanvasRenderingContext2D, projectile: Projectil
   context.restore();
 }
 
+function combatantById(state: CombatState, id: number | undefined): CombatantState | undefined {
+  if (id === undefined) return undefined;
+  return state.combatants.find((combatant) => combatant.id === id);
+}
+
+function drawScorchMark(context: CanvasRenderingContext2D, x: number, y: number, index: number): void {
+  context.save();
+  context.translate(x, y + 5);
+  context.rotate((index % 8) * (Math.PI / 8));
+  context.strokeStyle = 'rgb(11 17 24 / 58%)';
+  context.fillStyle = 'rgb(11 17 24 / 28%)';
+  context.lineWidth = 2;
+  context.beginPath();
+  context.ellipse(0, 0, 14 + (index % 3), 5 + (index % 2), 0, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+  context.restore();
+}
+
+function drawScorchMarks(context: CanvasRenderingContext2D, state: CombatState): void {
+  const hits = state.events.slice(-64).filter((event) => event.type === 'HIT_CONFIRMED').slice(-24);
+  hits.forEach((event, index) => {
+    const target = combatantById(state, event.targetId);
+    if (target) drawScorchMark(context, target.x, target.y, index);
+  });
+}
+
+function drawMuzzleFlash(
+  context: CanvasRenderingContext2D,
+  combatant: CombatantState,
+  target: CombatantState,
+  age: number,
+): void {
+  const direction = directionToTarget(combatant, target);
+  const side = robotSideForId(combatant.id);
+  const color = side === 'ally' ? COLORS.allyLight : COLORS.enemyLight;
+  context.save();
+  context.translate(combatant.x, combatant.y);
+  context.rotate(direction.angle);
+  context.globalAlpha = 1 - age / (EFFECT_WINDOWS.muzzleFlash + 1);
+  context.fillStyle = color;
+  context.beginPath();
+  context.moveTo(22, 0);
+  context.lineTo(38, -7);
+  context.lineTo(32, 0);
+  context.lineTo(38, 7);
+  context.closePath();
+  context.fill();
+  context.strokeStyle = color;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.arc(28, 0, 8 + (EFFECT_WINDOWS.muzzleFlash - age), 0, Math.PI * 2);
+  context.stroke();
+  context.restore();
+}
+
+function drawImpactEffect(
+  context: CanvasRenderingContext2D,
+  target: CombatantState,
+  event: CombatEvent,
+  age: number,
+  mode: BattleEffectMode,
+): void {
+  const side = robotSideForId(event.sourceId ?? 2);
+  const color = side === 'ally' ? COLORS.allyLight : COLORS.enemyLight;
+  const alpha = Math.max(0.12, 1 - age / (EFFECT_WINDOWS.impact + 2));
+  context.save();
+  context.globalAlpha = alpha;
+  context.strokeStyle = color;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.arc(target.x, target.y, 10 + age * 2, 0, Math.PI * 2);
+  context.stroke();
+  for (let index = 0; index < 5; index += 1) {
+    const angle = (index * Math.PI * 2) / 5 + (event.projectileId ?? 0) * 0.2;
+    const length = 13 + (index % 2) * 5;
+    context.beginPath();
+    context.moveTo(target.x + Math.cos(angle) * 7, target.y + Math.sin(angle) * 7);
+    context.lineTo(target.x + Math.cos(angle) * length, target.y + Math.sin(angle) * length);
+    context.stroke();
+  }
+  if (mode === 'full' && age <= EFFECT_WINDOWS.smoke) {
+    context.globalAlpha = Math.max(0, 0.28 - age * 0.025);
+    context.fillStyle = '#AAB7C4';
+    for (const [offsetX, offsetY, radius] of [[-6, -8, 6], [5, -5, 5], [3, 5, 7]] as const) {
+      context.beginPath();
+      context.arc(target.x + offsetX, target.y + offsetY - age * 0.4, radius, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+  context.restore();
+}
+
+function drawBattleEffects(
+  context: CanvasRenderingContext2D,
+  state: CombatState,
+  mode: BattleEffectMode,
+): void {
+  const events = state.events.slice(-32);
+  for (const event of events) {
+    const age = state.tick - event.tick;
+    if (event.type === 'PROJECTILE_FIRED' && isEffectVisible(state.tick, event.tick, EFFECT_WINDOWS.muzzleFlash)) {
+      const source = combatantById(state, event.sourceId);
+      const target = state.combatants.find((combatant) => combatant.id !== event.sourceId);
+      if (source && target) drawMuzzleFlash(context, source, target, age);
+    }
+    if (event.type === 'HIT_CONFIRMED' && isEffectVisible(state.tick, event.tick, EFFECT_WINDOWS.impact)) {
+      const target = combatantById(state, event.targetId);
+      if (target) drawImpactEffect(context, target, event, age, mode);
+    }
+  }
+}
+
 function arenaScale(state: CombatState, context: CanvasRenderingContext2D): { x: number; y: number } {
   const width = state.arena.maxX - state.arena.minX;
   const height = state.arena.maxY - state.arena.minY;
@@ -317,17 +480,21 @@ export function drawBattleScene(
   context: CanvasRenderingContext2D,
   state: CombatState,
   activeRuleId: string | null,
+  options: BattleRenderOptions = {},
 ): void {
   const first = state.combatants[0];
   const second = state.combatants[1];
   if (!first || !second) return;
   const scale = arenaScale(state, context);
+  const effectMode = options.effects ?? 'full';
 
   context.save();
   context.setTransform(scale.x, 0, 0, scale.y, -state.arena.minX * scale.x, -state.arena.minY * scale.y);
   drawArena(context);
+  drawScorchMarks(context, state);
   drawRobot(context, first, second, activeRuleId);
   drawRobot(context, second, first, activeRuleId);
   for (const projectile of state.projectiles) drawProjectile(context, projectile);
+  drawBattleEffects(context, state, effectMode);
   context.restore();
 }

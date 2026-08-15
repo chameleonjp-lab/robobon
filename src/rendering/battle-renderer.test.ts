@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { directionToTarget, robotSideForId, robotSilhouette } from './battle-renderer';
+import { EFFECT_WINDOWS, directionToTarget, isEffectVisible, robotSideForId, robotSilhouette } from './battle-renderer';
 
 describe('P3-15 representative battle renderer contract', () => {
   it('keeps ally and enemy silhouettes distinct and deterministic', () => {
@@ -32,5 +32,12 @@ describe('P3-15 representative battle renderer contract', () => {
     expect(up.angle).toBeCloseTo(-Math.PI / 2);
     expect(samePosition).toMatchObject({ x: 1, y: 0, angle: 0 });
     expect(Math.hypot(up.x, up.y)).toBeCloseTo(1);
+  });
+
+  it('keeps weapon effects inside fixed tick windows', () => {
+    expect(isEffectVisible(10, 10, EFFECT_WINDOWS.muzzleFlash)).toBe(true);
+    expect(isEffectVisible(13, 10, EFFECT_WINDOWS.muzzleFlash)).toBe(true);
+    expect(isEffectVisible(14, 10, EFFECT_WINDOWS.muzzleFlash)).toBe(false);
+    expect(isEffectVisible(9, 10, EFFECT_WINDOWS.impact)).toBe(false);
   });
 });

@@ -930,7 +930,11 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
       }
     }
     if (newEvents.length > 0) {
-      const message = updateBattleEventLog(battleStatus, after);
+      updateBattleEventLog(battleStatus, after);
+      const message = newEvents
+        .map((event) => battleEventText(event))
+        .filter((eventText): eventText is string => eventText !== null)
+        .at(-1) ?? null;
       if (message) battleStatus.announcement.textContent = message;
     }
   };

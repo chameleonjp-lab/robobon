@@ -12,6 +12,7 @@ import { selectRule, type RuleCard, type RuleFacts, type RuleSelection, validate
 import { squaredDistance } from './simulation/geometry';
 import { drawBattleScene } from './rendering/battle-renderer';
 import { BattleAudio, soundForEvent } from './audio/battle-audio';
+import { battleEventText, formatBattleStatus, formatCombatantMetric } from './battle-status';
 import {
   MAX_PROGRAM_BYTES,
   MAX_PROGRAM_NAME_LENGTH,
@@ -118,6 +119,22 @@ interface PreBattleIssue {
 interface PreBattleCheck {
   readonly canStart: boolean;
   readonly issues: readonly PreBattleIssue[];
+}
+
+interface BattleMetricElements {
+  readonly health: HTMLElement;
+  readonly heat: HTMLElement;
+  readonly ammo: HTMLElement;
+  readonly active: HTMLElement;
+}
+
+interface BattleStatusElements {
+  readonly root: HTMLElement;
+  readonly status: HTMLParagraphElement;
+  readonly announcement: HTMLParagraphElement;
+  readonly eventLog: HTMLOListElement;
+  readonly player: BattleMetricElements;
+  readonly opponent: BattleMetricElements;
 }
 
 function make<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
@@ -322,6 +339,111 @@ function findCombatant(state: CombatState, id: number): CombatantState {
   const combatant = state.combatants.find((candidate) => candidate.id === id);
   if (!combatant) throw new Error(`機体 ${id} が見つかりません`);
   return combatant;
+}
+
+function makeBattleMetric(parent: HTMLElement, label: string): HTMLElement {
+  const row = make('div', 'battle-metric');
+  const caption = make('dt');
+  caption.textContent = label;
+  const value = make('dd');
+  value.textContent = '—';
+  row.append(caption, value);
+  parent.append(row);
+  return value;
+}
+
+function makeBattleStateCard(title: string, headingId: string): { readonly card: HTMLElement; readonly metrics: BattleMetricElements } {
+  const card = make('article', 'battle-state-card');
+  const heading = make('h3');
+  heading.id = headingId;
+  heading.textContent = title;
+  const metricsList = make('dl', 'battle-metric-list');
+  const metrics: BattleMetricElements = {
+    active: makeBattleMetric(metricsList, '稼働状態'),
+    health: makeBattleMetric(metricsList, '耐久'),
+    heat: makeBattleMetric(metricsList, '熱'),
+    ammo: makeBattleMetric(metricsList, '弾数'),
+  };
+  card.append(heading, metricsList);
+  return { card, metrics };
+}
+
+function createBattleStatusPanel(): BattleStatusElements {
+  const root = make('section', 'battle-semantic');
+  const title = make('h2');
+  title.id = 'battle-status-title';
+  title.textContent = '戦闘の状態';
+  root.setAttribute('aria-labelledby', title.id);
+
+  const status = make('p', 'battle-status');
+  status.setAttribute('aria-live', 'off');
+  status.textContent = '戦闘状態を読み込んでいます。';
+
+  const stateGrid = make('div', 'battle-state-grid');
+  const playerCard = makeBattleStateCard('自機（味方）', 'battle-player-title');
+  const opponentCard = makeBattleStateCard('敵機', 'battle-opponent-title');
+  stateGrid.append(playerCard.card, opponentCard.card);
+
+  const eventSection = make('section', 'battle-events');
+  eventSection.setAttribute('aria-labelledby', 'battle-events-title');
+  const eventTitle = make('h3');
+  eventTitle.id = 'battle-events-title';
+  eventTitle.textContent = '直近の出来事';
+  const eventLog = make('ol', 'battle-event-list');
+  eventLog.setAttribute('aria-live', 'off');
+  eventLog.textContent = 'まだ記録はありません。';
+  eventSection.append(eventTitle, eventLog);
+
+  const announcement = make('p', 'battle-announcement');
+  announcement.setAttribute('role', 'status');
+  announcement.setAttribute('aria-live', 'polite');
+  announcement.setAttribute('aria-atomic', 'true');
+  announcement.textContent = '重要な出来事はここに表示します。';
+
+  root.append(title, status, stateGrid, eventSection, announcement);
+  return {
+    root,
+    status,
+    announcement,
+    eventLog,
+    player: playerCard.metrics,
+    opponent: opponentCard.metrics,
+  };
+}
+
+function updateBattleStatus(panel: BattleStatusElements, state: CombatState): void {
+  const player = findCombatant(state, PLAYER_ID);
+  const opponent = findCombatant(state, ENEMY_ID);
+  const playerMetrics = formatCombatantMetric(player);
+  const opponentMetrics = formatCombatantMetric(opponent);
+  panel.status.textContent = formatBattleStatus(state.tick, state.maxTicks, player, opponent);
+  panel.player.active.textContent = playerMetrics.active;
+  panel.player.health.textContent = playerMetrics.health;
+  panel.player.heat.textContent = playerMetrics.heat;
+  panel.player.ammo.textContent = playerMetrics.ammo;
+  panel.opponent.active.textContent = opponentMetrics.active;
+  panel.opponent.health.textContent = opponentMetrics.health;
+  panel.opponent.heat.textContent = opponentMetrics.heat;
+  panel.opponent.ammo.textContent = opponentMetrics.ammo;
+}
+
+function updateBattleEventLog(panel: BattleStatusElements, state: CombatState): string | null {
+  const messages = state.events
+    .slice(-8)
+    .map((event) => battleEventText(event))
+    .filter((message): message is string => message !== null);
+  const visibleMessages = messages.slice(-4);
+  panel.eventLog.replaceChildren();
+  if (visibleMessages.length === 0) {
+    panel.eventLog.textContent = 'まだ記録はありません。';
+    return null;
+  }
+  for (const message of visibleMessages) {
+    const item = make('li');
+    item.textContent = message;
+    panel.eventLog.append(item);
+  }
+  return visibleMessages.at(-1) ?? null;
 }
 
 /** Converts the current combat state into the small, visible rule vocabulary. */
@@ -762,21 +884,24 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
   const canvas = make('canvas', 'battle-canvas');
   canvas.width = ARENA.maxX;
   canvas.height = ARENA.maxY;
-  canvas.setAttribute('role', 'img');
-  canvas.setAttribute('aria-label', 'ロボット2機の自動戦闘');
+  canvas.setAttribute('aria-hidden', 'true');
   const context = canvas.getContext('2d');
   if (!context) throw new Error('戦闘Canvasを作成できません');
   const activeRule = make('p', 'battle-active-rule');
+  activeRule.setAttribute('role', 'status');
   activeRule.setAttribute('aria-live', 'polite');
-  const status = make('p', 'slice-note');
-  status.textContent = '開始中。規則を上から確認しています。音はオフです。';
+  activeRule.setAttribute('aria-atomic', 'true');
+  activeRule.textContent = '実行前: 規則を確認します。';
+  const battleStatus = createBattleStatusPanel();
   const controls = make('div', 'slice-actions');
   const pause = button('停止', 'slice-button slice-button--secondary');
+  pause.setAttribute('aria-pressed', 'false');
+  pause.setAttribute('aria-label', '戦闘を一時停止');
   const sound = button('音を開始', 'slice-button slice-button--quiet');
   sound.setAttribute('aria-pressed', 'false');
   const edit = button('記録して編集へ戻る', 'slice-button slice-button--quiet');
   controls.append(pause, sound, edit);
-  section.append(canvas, activeRule, status, controls);
+  section.append(canvas, activeRule, battleStatus.root, controls);
   elements.content.append(section);
 
   let state = initialCombatState();
@@ -787,6 +912,8 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
   let animationFrame = 0;
   let previousTime = performance.now();
   const clock = new FixedStepClock();
+  updateBattleStatus(battleStatus, state);
+  updateBattleEventLog(battleStatus, state);
 
   const recordEvents = (before: CombatState, after: CombatState): void => {
     const newEvents = after.events.slice(before.events.length);
@@ -802,6 +929,10 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
         evidence.push({ tick: event.tick, text: `発射できませんでした（${event.reason ?? '理由不明'}）` });
       }
     }
+    if (newEvents.length > 0) {
+      const message = updateBattleEventLog(battleStatus, after);
+      if (message) battleStatus.announcement.textContent = message;
+    }
   };
 
   sound.addEventListener('click', () => {
@@ -809,18 +940,18 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
       audio.disable();
       sound.textContent = '音を開始';
       sound.setAttribute('aria-pressed', 'false');
-      status.textContent = '音を止めました。画面の表示はそのまま確認できます。';
+      battleStatus.announcement.textContent = '音を止めました。画面の表示はそのまま確認できます。';
       return;
     }
     void audio.enable().then((enabled) => {
       if (enabled) {
         sound.textContent = '音を止める';
         sound.setAttribute('aria-pressed', 'true');
-        status.textContent = '音を開始しました。発射・命中・過熱だけを短く鳴らします。';
+        battleStatus.announcement.textContent = '音を開始しました。発射・命中・過熱だけを短く鳴らします。';
       } else {
         sound.textContent = '音を開始';
         sound.setAttribute('aria-pressed', 'false');
-        status.textContent = 'このブラウザでは音を開始できません。画面表示で確認してください。';
+        battleStatus.announcement.textContent = 'このブラウザでは音を開始できません。画面表示で確認してください。';
       }
     });
   });
@@ -829,9 +960,10 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
     const before = state;
     if (state.tick % RULE_EVALUATION_TICKS === 0 || selection === null) {
       selection = selectRule(rules, factsFromCombat(state));
-      activeRule.textContent = selection.rule
+      const nextRuleText = selection.rule
         ? `実行中: ${selection.rule.id} / ${ACTION_LABELS[selection.rule.action]}`
         : '実行中: 該当する規則なし';
+      if (activeRule.textContent !== nextRuleText) activeRule.textContent = nextRuleText;
     }
     const commands: CombatCommand[] = [];
     const playerCommand = selection ? commandForSelection(selection, state) : null;
@@ -840,9 +972,7 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
     if (enemy) commands.push(enemy);
     state = stepCombat(state, commands);
     recordEvents(before, state);
-    const player = findCombatant(state, PLAYER_ID);
-    const opponent = findCombatant(state, ENEMY_ID);
-    status.textContent = `刻み ${state.tick} / ${MAX_BATTLE_TICKS}　自機 耐久${player.health} 熱${player.heat} 弾${player.ammo}　敵 耐久${opponent.health}`;
+    updateBattleStatus(battleStatus, state);
     if (state.outcome.status === 'finished') {
       cancelAnimationFrame(animationFrame);
       audio.dispose();
@@ -864,11 +994,16 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
     if (paused) {
       clock.pause();
       pause.textContent = '再開';
-      status.textContent = '停止中。再開すると同じ刻みから続きます。';
+      pause.setAttribute('aria-pressed', 'true');
+      pause.setAttribute('aria-label', '戦闘を再開');
+      battleStatus.announcement.textContent = '停止中。再開すると同じ刻みから続きます。';
     } else {
       clock.resume();
       previousTime = performance.now();
       pause.textContent = '停止';
+      pause.setAttribute('aria-pressed', 'false');
+      pause.setAttribute('aria-label', '戦闘を一時停止');
+      battleStatus.announcement.textContent = '戦闘を再開しました。';
       animationFrame = requestAnimationFrame(frame);
     }
   });

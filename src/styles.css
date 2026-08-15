@@ -509,6 +509,100 @@ h1 {
   font-weight: 700;
 }
 
+.battle-semantic {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.7rem;
+  border: 1px solid #456174;
+  border-radius: 0.55rem;
+  background: #111f2a;
+}
+
+.battle-semantic h2,
+.battle-semantic h3 {
+  margin: 0;
+  color: #f8fafc;
+}
+
+.battle-status {
+  margin: 0;
+  color: #c7d5df;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.battle-state-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.battle-state-card {
+  min-width: 0;
+  padding: 0.6rem;
+  border: 1px solid #456174;
+  border-radius: 0.45rem;
+  background: #17232d;
+}
+
+.battle-state-card h3 {
+  font-size: 1rem;
+}
+
+.battle-metric-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.5rem 0 0;
+}
+
+.battle-metric {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.battle-metric dt {
+  min-width: 0;
+  color: #aab7c4;
+  overflow-wrap: anywhere;
+}
+
+.battle-metric dd {
+  min-width: 0;
+  margin: 0;
+  color: #f2f6f8;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.battle-events {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.battle-event-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #dce7ee;
+  line-height: 1.45;
+}
+
+.battle-announcement {
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  border-left: 0.25rem solid #c4a7ff;
+  color: #f2f6f8;
+  background: #0f1922;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .analysis-outcome {
   color: #b8a1ff;
   font-size: 1.35rem;
@@ -532,6 +626,12 @@ h1 {
 
   .spike-controls {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 380px) {
+  .battle-state-grid {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -11,6 +11,7 @@ import { headingToPoint } from './simulation/sensor';
 import { selectRule, type RuleCard, type RuleFacts, type RuleSelection, validateRuleSet } from './simulation/rules';
 import { squaredDistance } from './simulation/geometry';
 import { drawBattleScene } from './rendering/battle-renderer';
+import { BattleAudio, soundForEvent } from './audio/battle-audio';
 import {
   MAX_PROGRAM_BYTES,
   MAX_PROGRAM_NAME_LENGTH,
@@ -768,15 +769,18 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
   const activeRule = make('p', 'battle-active-rule');
   activeRule.setAttribute('aria-live', 'polite');
   const status = make('p', 'slice-note');
-  status.textContent = '開始中。規則を上から確認しています。';
+  status.textContent = '開始中。規則を上から確認しています。音はオフです。';
   const controls = make('div', 'slice-actions');
   const pause = button('停止', 'slice-button slice-button--secondary');
+  const sound = button('音を開始', 'slice-button slice-button--quiet');
+  sound.setAttribute('aria-pressed', 'false');
   const edit = button('記録して編集へ戻る', 'slice-button slice-button--quiet');
-  controls.append(pause, edit);
+  controls.append(pause, sound, edit);
   section.append(canvas, activeRule, status, controls);
   elements.content.append(section);
 
   let state = initialCombatState();
+  const audio = new BattleAudio();
   let selection: RuleSelection | null = null;
   let evidence: Evidence[] = [];
   let paused = false;
@@ -787,7 +791,9 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
   const recordEvents = (before: CombatState, after: CombatState): void => {
     const newEvents = after.events.slice(before.events.length);
     for (const event of newEvents) {
-      if (evidence.length >= 2) break;
+      const soundType = soundForEvent(event.type);
+      if (soundType) audio.play(soundType);
+      if (evidence.length >= 2) continue;
       if (event.type === 'PROJECTILE_FIRED' && event.sourceId === PLAYER_ID) {
         evidence.push({ tick: event.tick, text: `${selection?.rule?.id ?? '規則なし'}が発射を選びました` });
       } else if (event.type === 'HIT_CONFIRMED') {
@@ -797,6 +803,27 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
       }
     }
   };
+
+  sound.addEventListener('click', () => {
+    if (audio.isEnabled) {
+      audio.disable();
+      sound.textContent = '音を開始';
+      sound.setAttribute('aria-pressed', 'false');
+      status.textContent = '音を止めました。画面の表示はそのまま確認できます。';
+      return;
+    }
+    void audio.enable().then((enabled) => {
+      if (enabled) {
+        sound.textContent = '音を止める';
+        sound.setAttribute('aria-pressed', 'true');
+        status.textContent = '音を開始しました。発射・命中・過熱だけを短く鳴らします。';
+      } else {
+        sound.textContent = '音を開始';
+        sound.setAttribute('aria-pressed', 'false');
+        status.textContent = 'このブラウザでは音を開始できません。画面表示で確認してください。';
+      }
+    });
+  });
 
   const simulate = (): void => {
     const before = state;
@@ -818,6 +845,7 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
     status.textContent = `刻み ${state.tick} / ${MAX_BATTLE_TICKS}　自機 耐久${player.health} 熱${player.heat} 弾${player.ammo}　敵 耐久${opponent.health}`;
     if (state.outcome.status === 'finished') {
       cancelAnimationFrame(animationFrame);
+      audio.dispose();
       openAnalysis(state, evidence);
     }
   };
@@ -846,6 +874,7 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
   });
   edit.addEventListener('click', () => {
     cancelAnimationFrame(animationFrame);
+    audio.dispose();
     paused = true;
     elements.content.replaceChildren();
     mountEditor(elements, cloneRules(rules), (nextRules) => mountBattle(elements, nextRules, openAnalysis));

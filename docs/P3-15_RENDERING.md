@@ -2,7 +2,7 @@
 
 - 対象: ロボボン
 - 実装日: 2026-08-16
-- 状態: コード実装済み。iPhone実機・白黒・初見5人の受入は未実施
+- 状態: mainへ保存済み。iPhone実機・白黒・初見5人の受入は未実施
 - 対応箇所: `src/rendering/battle-renderer.ts`、`src/vertical-slice.ts`
 
 ## この節目で固定したこと

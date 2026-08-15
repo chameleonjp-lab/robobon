@@ -10,6 +10,19 @@ import {
 import { headingToPoint } from './simulation/sensor';
 import { selectRule, type RuleCard, type RuleFacts, type RuleSelection, validateRuleSet } from './simulation/rules';
 import { squaredDistance } from './simulation/geometry';
+import {
+  MAX_PROGRAM_BYTES,
+  MAX_PROGRAM_NAME_LENGTH,
+  MAX_PROGRAM_SLOTS,
+  copyProgram,
+  createProgramDocument,
+  createProgramStore,
+  parseProgramJson,
+  serializeProgram,
+  updateProgramRules,
+  type ProgramDocument,
+  type ProgramStore,
+} from './storage';
 
 type SlicePhase = 'edit' | 'battle' | 'analysis';
 
@@ -76,6 +89,11 @@ interface Evidence {
 interface SliceElements {
   readonly root: HTMLElement;
   readonly content: HTMLElement;
+  readonly storage: ProgramStore;
+  program: ProgramDocument;
+  storageStatus?: string;
+  storageStatusElement?: HTMLElement;
+  saveTimer?: number;
 }
 
 interface RuleEditHistory {
@@ -409,6 +427,197 @@ function renderHeader(content: HTMLElement, phase: SlicePhase): void {
   content.append(heading);
 }
 
+function storageError(error: unknown): string {
+  return error instanceof Error ? error.message : '端末保存に失敗しました';
+}
+
+function setStorageStatus(elements: SliceElements, message: string): void {
+  elements.storageStatus = message;
+  elements.storageStatusElement?.replaceChildren(document.createTextNode(message));
+}
+
+async function saveCurrentProgram(elements: SliceElements): Promise<boolean> {
+  try {
+    await elements.storage.save(elements.program);
+    const count = (await elements.storage.list()).length;
+    setStorageStatus(elements, `端末へ保存しました（${count}/${MAX_PROGRAM_SLOTS}件）。端末保存は消えることがあります。`);
+    return true;
+  } catch (error) {
+    setStorageStatus(elements, `端末へ保存できません: ${storageError(error)} 書き出しを使ってください。`);
+    return false;
+  }
+}
+
+function scheduleProgramSave(elements: SliceElements): void {
+  if (elements.saveTimer !== undefined) window.clearTimeout(elements.saveTimer);
+  elements.saveTimer = window.setTimeout(() => {
+    elements.saveTimer = undefined;
+    void saveCurrentProgram(elements);
+  }, 500);
+}
+
+async function refreshProgramOptions(elements: SliceElements, select: HTMLSelectElement): Promise<void> {
+  try {
+    const programs = await elements.storage.list();
+    const currentId = elements.program.id;
+    select.replaceChildren();
+    const empty = make('option');
+    empty.value = '';
+    empty.textContent = programs.length === 0 ? '保存済み作戦はありません' : '保存済み作戦を選ぶ';
+    select.append(empty);
+    for (const program of programs) {
+      const option = make('option');
+      option.value = program.id;
+      option.textContent = `${program.name}（${new Date(program.updatedAt).toLocaleString('ja-JP')}）`;
+      select.append(option);
+    }
+    select.value = programs.some((program) => program.id === currentId) ? currentId : '';
+  } catch (error) {
+    setStorageStatus(elements, `保存済み作戦を確認できません: ${storageError(error)}`);
+  }
+}
+
+function mountProgramStoragePanel(
+  elements: SliceElements,
+  openEditor: (program: ProgramDocument) => void,
+): HTMLElement {
+  const panel = make('section', 'storage-panel');
+  panel.setAttribute('aria-labelledby', 'storage-panel-title');
+  const title = make('h3');
+  title.id = 'storage-panel-title';
+  title.textContent = '作戦の保存';
+  const note = make('p', 'slice-note');
+  note.textContent = elements.storage.mode === 'indexeddb'
+    ? '端末のIndexedDBへ自動保存します。保存は端末・ブラウザに依存するため、重要な作戦は書き出してください。'
+    : 'この環境では端末保存の代替を使います。重要な作戦は書き出してください。';
+
+  const nameField = make('label', 'storage-name-field');
+  const nameCaption = make('span');
+  nameCaption.textContent = '作戦名';
+  const nameInput = make('input', 'storage-name-input');
+  nameInput.type = 'text';
+  nameInput.maxLength = MAX_PROGRAM_NAME_LENGTH;
+  nameInput.value = elements.program.name;
+  nameInput.setAttribute('aria-label', '作戦名');
+  nameInput.addEventListener('change', () => {
+    const name = nameInput.value.trim();
+    if (name.length === 0 || name.length > MAX_PROGRAM_NAME_LENGTH) {
+      nameInput.value = elements.program.name;
+      setStorageStatus(elements, `作戦名は1〜${MAX_PROGRAM_NAME_LENGTH}文字で入力してください。`);
+      return;
+    }
+    elements.program = { ...elements.program, name, updatedAt: new Date().toISOString() };
+    setStorageStatus(elements, '作戦名を変更しました。');
+    scheduleProgramSave(elements);
+  });
+  nameField.append(nameCaption, nameInput);
+
+  const status = make('p', 'storage-status');
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  status.textContent = elements.storageStatus ?? 'まだ端末へ保存していません。';
+  elements.storageStatusElement = status;
+
+  const actions = make('div', 'slice-actions storage-actions');
+  const save = button('端末へ保存', 'slice-button slice-button--secondary');
+  save.addEventListener('click', () => { void saveCurrentProgram(elements); });
+  const duplicate = button('複製して編集', 'slice-button slice-button--secondary');
+  duplicate.addEventListener('click', () => {
+    const copied = copyProgram(elements.program);
+    void elements.storage.save(copied).then(() => {
+      elements.program = copied;
+      setStorageStatus(elements, '作戦を複製しました。');
+      openEditor(copied);
+    }).catch((error: unknown) => {
+      setStorageStatus(elements, `複製を保存できません: ${storageError(error)}`);
+    });
+  });
+  const exportButton = button('JSONを書き出す', 'slice-button slice-button--quiet');
+  exportButton.addEventListener('click', () => {
+    try {
+      const text = serializeProgram(elements.program);
+      const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = make('a');
+      anchor.href = url;
+      anchor.download = `${elements.program.name.replace(/[^a-zA-Z0-9_-]+/g, '_') || 'robobon-program'}.json`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setStorageStatus(elements, 'JSONを書き出しました。iPhoneの「ファイル」に保存できます。');
+    } catch (error) {
+      setStorageStatus(elements, `書き出せません: ${storageError(error)}`);
+    }
+  });
+  const deleteButton = button('端末保存を削除', 'slice-button slice-button--quiet');
+  deleteButton.addEventListener('click', () => {
+    void elements.storage.delete(elements.program.id).then(() => {
+      setStorageStatus(elements, '端末に保存したこの作戦を削除しました。編集中の作戦は残っています。');
+      void refreshProgramOptions(elements, savedSelect);
+    }).catch((error: unknown) => {
+      setStorageStatus(elements, `端末保存を削除できません: ${storageError(error)}`);
+    });
+  });
+  actions.append(save, duplicate, exportButton, deleteButton);
+
+  const importField = make('label', 'storage-file-field');
+  const importCaption = make('span');
+  importCaption.textContent = 'JSONを読み込む';
+  const importInput = make('input', 'storage-file-input');
+  importInput.type = 'file';
+  importInput.accept = '.json,application/json,text/json';
+  importInput.setAttribute('aria-label', '作戦JSONファイル');
+  importInput.addEventListener('change', () => {
+    const file = importInput.files?.[0];
+    importInput.value = '';
+    if (!file) return;
+    if (file.size > MAX_PROGRAM_BYTES) {
+      setStorageStatus(elements, '読み込めません: ファイルが256KBを超えています。');
+      return;
+    }
+    void file.text().then((text) => {
+      const parsed = parseProgramJson(text);
+      if (!parsed.ok) {
+        setStorageStatus(elements, `読み込めません: ${parsed.error}`);
+        return;
+      }
+      return elements.storage.save(parsed.program).then(() => {
+        elements.program = parsed.program;
+        setStorageStatus(elements, parsed.migrated ? '旧形式を検査して新形式へ移行し、保存しました。' : 'JSONを検査して保存しました。');
+        openEditor(parsed.program);
+      });
+    }).catch((error: unknown) => {
+      setStorageStatus(elements, `読み込めません: ${storageError(error)} 現在の保存は変更していません。`);
+    });
+  });
+  importField.append(importCaption, importInput);
+
+  const savedField = make('label', 'storage-file-field');
+  const savedCaption = make('span');
+  savedCaption.textContent = '保存済み作戦を読み込む';
+  const savedSelect = make('select', 'storage-select');
+  savedSelect.setAttribute('aria-label', '保存済み作戦');
+  savedSelect.addEventListener('change', () => {
+    const id = savedSelect.value;
+    if (!id) return;
+    void elements.storage.get(id).then((program) => {
+      if (!program) {
+        setStorageStatus(elements, '選んだ作戦は見つかりません。');
+        return;
+      }
+      elements.program = program;
+      setStorageStatus(elements, '保存済み作戦を読み込みました。');
+      openEditor(program);
+    }).catch((error: unknown) => {
+      setStorageStatus(elements, `読み込めません: ${storageError(error)} 現在の作戦は残っています。`);
+    });
+  });
+  savedField.append(savedCaption, savedSelect);
+  void refreshProgramOptions(elements, savedSelect);
+
+  panel.append(title, note, nameField, actions, importField, savedField, status);
+  return panel;
+}
+
 function mountEditor(
   elements: SliceElements,
   rules: RuleCard[],
@@ -419,6 +628,7 @@ function mountEditor(
   renderHeader(elements.content, 'edit');
 
   const currentRules = cloneRules(history.rules);
+  elements.program = updateProgramRules(elements.program, currentRules);
   const preflight = inspectPreBattleRules(currentRules);
 
   const section = make('section', 'slice-panel');
@@ -438,6 +648,8 @@ function mountEditor(
 
   const renderEdit = (nextRules: readonly RuleCard[]): void => {
     const nextHistory = commitRuleEdit(history, nextRules);
+    elements.program = updateProgramRules(elements.program, nextHistory.rules);
+    scheduleProgramSave(elements);
     mountEditor(elements, cloneRules(nextHistory.rules), openBattle, nextHistory);
   };
 
@@ -557,7 +769,10 @@ function mountEditor(
     ? `上限の${MAX_VERTICAL_SLICE_RULES}枚です。削除してから追加できます。`
     : 'カードはタップで選び、上下ボタンで優先順位を変えます。';
   actions.append(add, undo, start);
-  section.append(title, note, capacity, historyNote, list, preflightPanel, capacityNote, actions);
+  const storagePanel = mountProgramStoragePanel(elements, (program) => {
+    mountEditor(elements, cloneRules(program.rules), openBattle, createRuleEditHistory(program.rules));
+  });
+  section.append(title, note, capacity, historyNote, storagePanel, list, preflightPanel, capacityNote, actions);
   elements.content.append(section);
 }
 
@@ -699,7 +914,12 @@ function mountVerticalSlice(root: HTMLElement): void {
   const section = make('section', 'vertical-slice');
   section.setAttribute('aria-labelledby', 'vertical-slice-title');
   const content = make('div', 'vertical-slice__content');
-  const elements: SliceElements = { root: section, content };
+  const elements: SliceElements = {
+    root: section,
+    content,
+    storage: createProgramStore(),
+    program: createProgramDocument(DEFAULT_RULES),
+  };
   const startEditor = (rules: RuleCard[]): void => {
     mountEditor(elements, rules, (nextRules) => mountBattle(elements, nextRules, (state, evidence) => mountAnalysis(elements, nextRules, state, evidence)));
   };

@@ -371,6 +371,60 @@ h1 {
   background: #101b25;
 }
 
+.storage-panel {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid #4b6070;
+  border-radius: 0.55rem;
+  background: #111f2a;
+}
+
+.storage-panel h3,
+.storage-panel p {
+  margin: 0;
+}
+
+.storage-name-field,
+.storage-file-field {
+  display: grid;
+  gap: 0.25rem;
+  color: #c7d5df;
+  font-size: 0.82rem;
+}
+
+.storage-name-input,
+.storage-select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid #597386;
+  border-radius: 0.4rem;
+  color: #f8fafc;
+  background: #0f1922;
+}
+
+.storage-file-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.35rem;
+  border: 1px dashed #597386;
+  border-radius: 0.4rem;
+  color: #dce7ee;
+  background: #0f1922;
+}
+
+.storage-status {
+  min-height: 1.3em;
+  color: #b8a1ff;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.storage-actions {
+  margin-top: 0.1rem;
+}
+
 .preflight-panel h3,
 .preflight-panel p {
   margin: 0;

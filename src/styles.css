@@ -493,6 +493,48 @@ h1 {
   opacity: 0.55;
 }
 
+.battle-control {
+  display: grid;
+  flex: 1 1 6rem;
+  min-width: 5.5rem;
+  gap: 0.2rem;
+  color: #c7d5df;
+  font-size: 0.78rem;
+}
+
+.battle-control__caption {
+  color: #aab7c4;
+  line-height: 1.2;
+}
+
+.battle-select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.45rem 0.5rem;
+}
+
+.battle-control--check {
+  display: flex;
+  align-items: end;
+  gap: 0.35rem;
+  min-height: 44px;
+  padding-bottom: 0.55rem;
+}
+
+.battle-control--check input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: #b8a1ff;
+}
+
+.battle-quality-note {
+  margin: 0;
+  color: #9fb2bf;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 .battle-canvas {
   display: block;
   width: 100%;

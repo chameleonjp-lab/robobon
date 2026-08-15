@@ -11,6 +11,7 @@ import {
   MAX_VERTICAL_SLICE_RULES,
   moveRuleCard,
   parseRuleDurationSeconds,
+  scaleBattleElapsed,
   updateRuleAction,
   updateRuleCondition,
   undoRuleEdit,
@@ -111,6 +112,13 @@ describe('P1-09 vertical slice model', () => {
     expect(parseRuleDurationSeconds('10.1')).toMatchObject({ valid: false });
     expect(parseRuleDurationSeconds('0.15')).toMatchObject({ valid: false });
     expect(parseRuleDurationSeconds('not-a-number')).toMatchObject({ valid: false });
+  });
+
+  it('scales speed without allowing an unbounded delayed frame', () => {
+    expect(scaleBattleElapsed(16, 1)).toBe(16);
+    expect(scaleBattleElapsed(16, 2)).toBe(32);
+    expect(scaleBattleElapsed(500, 2)).toBe(200);
+    expect(() => scaleBattleElapsed(Number.NaN, 1)).toThrow(RangeError);
   });
 
   it('allows a complete default作戦 and reports no pre-battle issues', () => {

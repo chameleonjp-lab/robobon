@@ -10,7 +10,7 @@ import {
 import { headingToPoint } from './simulation/sensor';
 import { selectRule, type RuleCard, type RuleFacts, type RuleSelection, validateRuleSet } from './simulation/rules';
 import { squaredDistance } from './simulation/geometry';
-import { drawBattleScene } from './rendering/battle-renderer';
+import { drawBattleScene, type BattleQuality, type BattleRenderOptions } from './rendering/battle-renderer';
 import { BattleAudio, soundForEvent } from './audio/battle-audio';
 import { battleEventText, formatBattleStatus, formatCombatantMetric } from './battle-status';
 import {
@@ -38,6 +38,15 @@ const MIN_DURATION_TICKS = 6;
 const MAX_DURATION_TICKS = 60 * 10;
 const PLAYER_ID = 1;
 const ENEMY_ID = 2;
+const DEFAULT_BATTLE_SPEED = 1 as const;
+
+export type BattleSpeed = 1 | 2;
+
+/** Limits wall-clock catch-up before applying the selected simulation speed. */
+function scaleBattleElapsed(elapsedMs: number, speed: BattleSpeed): number {
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) throw new RangeError('elapsedMs must be a non-negative finite number');
+  return Math.min(100, elapsedMs) * speed;
+}
 
 const PLAYER_WEAPON: WeaponSpec = {
   id: 'pulse',
@@ -489,8 +498,13 @@ function enemyCommand(state: CombatState): CombatCommand | null {
   return { kind: 'fire', ownerId: ENEMY_ID, heading: headingToPoint({ ...enemy, heading: 128 }, player), weapon: ENEMY_WEAPON };
 }
 
-function drawBattle(context: CanvasRenderingContext2D, state: CombatState, activeRuleId: string | null): void {
-  drawBattleScene(context, state, activeRuleId);
+function drawBattle(
+  context: CanvasRenderingContext2D,
+  state: CombatState,
+  activeRuleId: string | null,
+  options: BattleRenderOptions = {},
+): void {
+  drawBattleScene(context, state, activeRuleId, options);
 }
 
 function renderHeader(content: HTMLElement, phase: SlicePhase): void {
@@ -897,11 +911,52 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
   const pause = button('停止', 'slice-button slice-button--secondary');
   pause.setAttribute('aria-pressed', 'false');
   pause.setAttribute('aria-label', '戦闘を一時停止');
+  const speedControl = make('label', 'battle-control');
+  const speedCaption = make('span', 'battle-control__caption');
+  speedCaption.textContent = '速度';
+  const speed = make('select', 'battle-select');
+  speed.setAttribute('aria-label', '戦闘速度');
+  for (const [value, label] of [['1', '1倍速'], ['2', '2倍速']] as const) {
+    const option = make('option');
+    option.value = value;
+    option.textContent = label;
+    speed.append(option);
+  }
+  speed.value = `${DEFAULT_BATTLE_SPEED}`;
+  speedControl.append(speedCaption, speed);
+  const qualityControl = make('label', 'battle-control');
+  const qualityCaption = make('span', 'battle-control__caption');
+  qualityCaption.textContent = '画質';
+  const quality = make('select', 'battle-select');
+  quality.setAttribute('aria-label', '戦闘画質');
+  for (const [value, label] of [['high', '高'], ['medium', '中'], ['low', '低']] as const) {
+    const option = make('option');
+    option.value = value;
+    option.textContent = label;
+    quality.append(option);
+  }
+  quality.value = 'high';
+  quality.disabled = true;
+  quality.setAttribute('aria-describedby', 'battle-quality-note');
+  qualityControl.append(qualityCaption, quality);
+  const reducedControl = make('label', 'battle-control battle-control--check');
+  const reducedMotion = make('input');
+  reducedMotion.type = 'checkbox';
+  reducedMotion.checked = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    : false;
+  const reducedCaption = make('span');
+  reducedCaption.textContent = '演出を減らす';
+  reducedControl.append(reducedMotion, reducedCaption);
   const sound = button('音を開始', 'slice-button slice-button--quiet');
   sound.setAttribute('aria-pressed', 'false');
   const edit = button('記録して編集へ戻る', 'slice-button slice-button--quiet');
-  controls.append(pause, sound, edit);
+  const qualityNote = make('p', 'battle-quality-note');
+  qualityNote.id = 'battle-quality-note';
+  qualityNote.textContent = '画質は停止中に変更できます。勝敗と重要情報は変わりません。';
+  controls.append(pause, speedControl, qualityControl, reducedControl, sound, edit);
   section.append(canvas, activeRule, battleStatus.root, controls);
+  section.append(qualityNote);
   elements.content.append(section);
 
   let state = initialCombatState();
@@ -909,9 +964,72 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
   let selection: RuleSelection | null = null;
   let evidence: Evidence[] = [];
   let paused = false;
+  let pausedByBackground = false;
   let animationFrame = 0;
   let previousTime = performance.now();
   const clock = new FixedStepClock();
+
+  const readQuality = (): BattleQuality => {
+    const value = quality.value;
+    return value === 'medium' || value === 'low' ? value : 'high';
+  };
+
+  const readSpeed = (): BattleSpeed => (speed.value === '2' ? 2 : 1);
+
+  const renderOptions = (): BattleRenderOptions => ({
+    quality: readQuality(),
+    effects: reducedMotion.checked ? 'reduced' : undefined,
+  });
+
+  const updatePauseControls = (): void => {
+    pause.textContent = paused ? '再開' : '停止';
+    pause.setAttribute('aria-pressed', String(paused));
+    pause.setAttribute('aria-label', paused ? '戦闘を再開' : '戦闘を一時停止');
+    quality.disabled = !paused;
+  };
+
+  const stopAnimation = (): void => {
+    if (animationFrame !== 0) cancelAnimationFrame(animationFrame);
+    animationFrame = 0;
+  };
+
+  const pauseForBackground = (): void => {
+    if (state.outcome.status === 'finished') return;
+    paused = true;
+    pausedByBackground = true;
+    clock.pause();
+    stopAnimation();
+    audio.disable();
+    sound.textContent = '音を開始';
+    sound.setAttribute('aria-pressed', 'false');
+    updatePauseControls();
+    battleStatus.announcement.textContent = '背後へ移動したため停止しました。戻ったら「再開」を押してください。時間は進みません。';
+  };
+
+  const onVisibilityChange = (): void => {
+    if (document.visibilityState === 'hidden') {
+      pauseForBackground();
+      return;
+    }
+    if (pausedByBackground) {
+      battleStatus.announcement.textContent = '画面に戻りました。時間は進んでいません。「再開」を押すと続きます。';
+    }
+  };
+
+  const onPageHide = (): void => {
+    pauseForBackground();
+  };
+
+  const onPageShow = (event: PageTransitionEvent): void => {
+    if (event.persisted) pauseForBackground();
+  };
+
+  const cleanupLifecycle = (): void => {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    window.removeEventListener('pagehide', onPageHide);
+    window.removeEventListener('pageshow', onPageShow);
+  };
+
   updateBattleStatus(battleStatus, state);
   updateBattleEventLog(battleStatus, state);
 
@@ -948,6 +1066,12 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
       return;
     }
     void audio.enable().then((enabled) => {
+      if (document.visibilityState === 'hidden' || pausedByBackground) {
+        audio.disable();
+        sound.textContent = '音を開始';
+        sound.setAttribute('aria-pressed', 'false');
+        return;
+      }
       if (enabled) {
         sound.textContent = '音を止める';
         sound.setAttribute('aria-pressed', 'true');
@@ -978,7 +1102,8 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
     recordEvents(before, state);
     updateBattleStatus(battleStatus, state);
     if (state.outcome.status === 'finished') {
-      cancelAnimationFrame(animationFrame);
+      stopAnimation();
+      cleanupLifecycle();
       audio.dispose();
       openAnalysis(state, evidence);
     }
@@ -986,39 +1111,60 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
 
   const frame = (now: number): void => {
     if (paused || state.outcome.status === 'finished') return;
-    const elapsed = Math.min(100, Math.max(0, now - previousTime));
+    const elapsed = Math.max(0, now - previousTime);
     previousTime = now;
-    clock.advance(elapsed, simulate);
-    drawBattle(context, state, selection?.rule?.id ?? null);
+    clock.advance(scaleBattleElapsed(elapsed, readSpeed()), simulate);
+    drawBattle(context, state, selection?.rule?.id ?? null, renderOptions());
     if (state.outcome.status === 'running') animationFrame = requestAnimationFrame(frame);
   };
 
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('pagehide', onPageHide);
+  window.addEventListener('pageshow', onPageShow);
+
+  speed.addEventListener('change', () => {
+    battleStatus.announcement.textContent = speed.value === '2'
+      ? '速度を2倍にしました。1回の描画で進む刻み数の上限は変わりません。'
+      : '速度を1倍に戻しました。';
+  });
+  quality.addEventListener('change', () => {
+    if (!paused) return;
+    drawBattle(context, state, selection?.rule?.id ?? null, renderOptions());
+    battleStatus.announcement.textContent = `画質を${quality.value === 'low' ? '低' : quality.value === 'medium' ? '中' : '高'}に変更しました。勝敗と重要情報は変わりません。`;
+  });
+  reducedMotion.addEventListener('change', () => {
+    drawBattle(context, state, selection?.rule?.id ?? null, renderOptions());
+    battleStatus.announcement.textContent = reducedMotion.checked ? '演出を減らしました。重要な表示は残ります。' : '演出を標準へ戻しました。';
+  });
+
   pause.addEventListener('click', () => {
-    paused = !paused;
-    if (paused) {
+    if (!paused) {
+      paused = true;
+      pausedByBackground = false;
       clock.pause();
-      pause.textContent = '再開';
-      pause.setAttribute('aria-pressed', 'true');
-      pause.setAttribute('aria-label', '戦闘を再開');
+      stopAnimation();
+      updatePauseControls();
       battleStatus.announcement.textContent = '停止中。再開すると同じ刻みから続きます。';
     } else {
+      paused = false;
+      pausedByBackground = false;
       clock.resume();
       previousTime = performance.now();
-      pause.textContent = '停止';
-      pause.setAttribute('aria-pressed', 'false');
-      pause.setAttribute('aria-label', '戦闘を一時停止');
+      updatePauseControls();
       battleStatus.announcement.textContent = '戦闘を再開しました。';
       animationFrame = requestAnimationFrame(frame);
     }
   });
   edit.addEventListener('click', () => {
-    cancelAnimationFrame(animationFrame);
+    stopAnimation();
+    cleanupLifecycle();
     audio.dispose();
     paused = true;
     elements.content.replaceChildren();
     mountEditor(elements, cloneRules(rules), (nextRules) => mountBattle(elements, nextRules, openAnalysis));
   });
-  drawBattle(context, state, null);
+  updatePauseControls();
+  drawBattle(context, state, null, renderOptions());
   animationFrame = requestAnimationFrame(frame);
 }
 
@@ -1087,6 +1233,7 @@ export {
   parseRuleDurationSeconds,
   inspectPreBattleRules,
   renderPreBattleCheck,
+  scaleBattleElapsed,
   updateRuleAction,
   updateRuleCondition,
   undoRuleEdit,

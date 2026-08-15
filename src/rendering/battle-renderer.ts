@@ -15,9 +15,26 @@ export interface DirectionToTarget extends RenderPoint {
 }
 
 export type BattleEffectMode = 'full' | 'reduced';
+export type BattleQuality = 'high' | 'medium' | 'low';
 
 export interface BattleRenderOptions {
   readonly effects?: BattleEffectMode;
+  readonly quality?: BattleQuality;
+}
+
+export interface BattleQualitySettings {
+  readonly scorchMarkLimit: number;
+  readonly effects: BattleEffectMode;
+}
+
+export const BATTLE_QUALITY_SETTINGS: Record<BattleQuality, BattleQualitySettings> = {
+  high: { scorchMarkLimit: 24, effects: 'full' },
+  medium: { scorchMarkLimit: 12, effects: 'full' },
+  low: { scorchMarkLimit: 0, effects: 'reduced' },
+};
+
+export function battleQualitySettings(quality: BattleQuality): BattleQualitySettings {
+  return { ...BATTLE_QUALITY_SETTINGS[quality] };
 }
 
 export const EFFECT_WINDOWS = {
@@ -369,8 +386,9 @@ function drawScorchMark(context: CanvasRenderingContext2D, x: number, y: number,
   context.restore();
 }
 
-function drawScorchMarks(context: CanvasRenderingContext2D, state: CombatState): void {
-  const hits = state.events.slice(-64).filter((event) => event.type === 'HIT_CONFIRMED').slice(-24);
+function drawScorchMarks(context: CanvasRenderingContext2D, state: CombatState, limit: number): void {
+  if (limit <= 0) return;
+  const hits = state.events.slice(-64).filter((event) => event.type === 'HIT_CONFIRMED').slice(-limit);
   hits.forEach((event, index) => {
     const target = combatantById(state, event.targetId);
     if (target) drawScorchMark(context, target.x, target.y, index);
@@ -486,12 +504,14 @@ export function drawBattleScene(
   const second = state.combatants[1];
   if (!first || !second) return;
   const scale = arenaScale(state, context);
-  const effectMode = options.effects ?? 'full';
+  const quality = options.quality ?? 'high';
+  const qualitySettings = BATTLE_QUALITY_SETTINGS[quality] ?? BATTLE_QUALITY_SETTINGS.high;
+  const effectMode = options.effects ?? qualitySettings.effects;
 
   context.save();
   context.setTransform(scale.x, 0, 0, scale.y, -state.arena.minX * scale.x, -state.arena.minY * scale.y);
   drawArena(context);
-  drawScorchMarks(context, state);
+  drawScorchMarks(context, state, qualitySettings.scorchMarkLimit);
   drawRobot(context, first, second, activeRuleId);
   drawRobot(context, second, first, activeRuleId);
   for (const projectile of state.projectiles) drawProjectile(context, projectile);

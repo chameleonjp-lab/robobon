@@ -322,6 +322,46 @@ h1 {
   min-width: 0;
 }
 
+.rule-number-field {
+  display: grid;
+  flex: 1 1 9rem;
+  min-width: 8rem;
+  gap: 0.2rem;
+  color: #dce7ee;
+  font-size: 0.82rem;
+}
+
+.rule-number {
+  min-height: 44px;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  color: #f8fafc;
+  background: #0f1922;
+  border: 1px solid #597386;
+  border-radius: 0.4rem;
+  font: inherit;
+}
+
+.rule-number[aria-invalid='true'] {
+  border-color: #ff6b7a;
+  outline: 2px solid rgb(255 107 122 / 24%);
+}
+
+.rule-input-help,
+.rule-input-error {
+  min-height: 1.1em;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.rule-input-help {
+  color: #9fb2bf;
+}
+
+.rule-input-error {
+  color: #ff9da8;
+}
+
 .slice-button {
   min-height: 44px;
   padding: 0.55rem 0.75rem;

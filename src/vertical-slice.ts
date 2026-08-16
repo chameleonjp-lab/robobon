@@ -14,6 +14,12 @@ import { drawBattleScene, type BattleQuality, type BattleRenderOptions } from '.
 import { BattleAudio, soundForEvent } from './audio/battle-audio';
 import { battleEventText, formatBattleStatus, formatCombatantMetric } from './battle-status';
 import {
+  assessEvidence,
+  createExperimentIdeas,
+  evidenceKindLabel,
+  type AnalysisEvidence,
+} from './analysis';
+import {
   compactReplayState,
   selectReplayWindow,
   timelineEntries,
@@ -101,10 +107,7 @@ const DEFAULT_RULES: readonly RuleCard[] = [
   { id: 'rule-fallback', priority: 2, conditions: [], action: 'explore' },
 ];
 
-interface Evidence {
-  readonly tick: number;
-  readonly text: string;
-}
+type Evidence = AnalysisEvidence;
 
 type OpenAnalysis = (
   state: CombatState,
@@ -1053,13 +1056,13 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
     for (const event of newEvents) {
       const soundType = soundForEvent(event.type);
       if (soundType) audio.play(soundType);
-      if (evidence.length >= 2) continue;
+      if (evidence.length >= 3) continue;
       if (event.type === 'PROJECTILE_FIRED' && event.sourceId === PLAYER_ID) {
-        evidence.push({ tick: event.tick, text: `${selection?.rule?.id ?? '規則なし'}が発射を選びました` });
+        evidence.push({ kind: 'rule-choice', tick: event.tick, text: `${selection?.rule?.id ?? '規則なし'}が発射を選びました` });
       } else if (event.type === 'HIT_CONFIRMED') {
-        evidence.push({ tick: event.tick, text: `弾が機体${event.targetId}へ命中しました` });
+        evidence.push({ kind: 'hit', tick: event.tick, text: `弾が機体${event.targetId}へ命中しました` });
       } else if (event.type === 'ACTION_UNAVAILABLE' && event.sourceId === PLAYER_ID) {
-        evidence.push({ tick: event.tick, text: `発射できませんでした（${event.reason ?? '理由不明'}）` });
+        evidence.push({ kind: 'blocked', tick: event.tick, text: `発射できませんでした（${event.reason ?? '理由不明'}）` });
       }
     }
     if (newEvents.length > 0) {
@@ -1211,10 +1214,49 @@ function mountAnalysis(
   } else {
     for (const item of evidence) {
       const entry = make('li');
-      entry.textContent = `${(item.tick / 60).toFixed(1)}秒: ${item.text}`;
+      entry.textContent = `${(item.tick / 60).toFixed(1)}秒 / ${evidenceKindLabel(item.kind)}: ${item.text}`;
       list.append(entry);
     }
   }
+
+  const assessment = assessEvidence(evidence, state.events);
+  const assessmentPanel = make('section', 'analysis-evidence');
+  const assessmentHeading = make('h3');
+  assessmentHeading.textContent = '証拠の確認';
+  const assessmentStatus = make('p', `analysis-evidence__status analysis-evidence__status--${assessment.level}`);
+  assessmentStatus.textContent = assessment.summary;
+  const gapHeading = make('h4');
+  gapHeading.textContent = 'まだ分からないこと';
+  const gapList = make('ul', 'analysis-gap-list');
+  if (assessment.gaps.length === 0) {
+    const gap = make('li');
+    gap.textContent = '今回の記録に含まれる主要な出来事は確認できました。原因はまだ断定しません。';
+    gapList.append(gap);
+  } else {
+    for (const gap of assessment.gaps) {
+      const item = make('li');
+      item.textContent = gap.label;
+      gapList.append(item);
+    }
+  }
+  assessmentPanel.append(assessmentHeading, assessmentStatus, gapHeading, gapList);
+
+  const experimentsPanel = make('section', 'analysis-experiments');
+  const experimentsHeading = make('h3');
+  experimentsHeading.textContent = '次に試す実験案';
+  const experimentsNote = make('p', 'slice-note');
+  experimentsNote.textContent = '案は提案だけです。規則を自動で書き換えず、1回の再戦で1か所だけ変えます。';
+  const experimentsList = make('ol', 'analysis-experiment-list');
+  for (const idea of createExperimentIdeas(assessment)) {
+    const item = make('li', 'analysis-experiment');
+    const itemTitle = make('strong');
+    itemTitle.textContent = idea.title;
+    const itemDetail = make('span');
+    itemDetail.textContent = idea.detail;
+    item.append(itemTitle, itemDetail);
+    experimentsList.append(item);
+  }
+  experimentsPanel.append(experimentsHeading, experimentsNote, experimentsList);
 
   const timelinePanel = make('section', 'analysis-timeline');
   const timelineHeading = make('h3');
@@ -1319,7 +1361,7 @@ function mountAnalysis(
     );
   });
   actions.append(retry, edit);
-  section.append(title, outcome, reason, heading, list, timelinePanel, replayPanel, actions);
+  section.append(title, outcome, reason, heading, list, assessmentPanel, experimentsPanel, timelinePanel, replayPanel, actions);
   elements.content.append(section);
 }
 

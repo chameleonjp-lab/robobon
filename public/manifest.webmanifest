@@ -1,0 +1,13 @@
+{
+  "name": "ロボボン",
+  "short_name": "ロボボン",
+  "description": "命令を組み、自動戦闘を観察して改善するブラウザゲーム。",
+  "lang": "ja",
+  "id": "/robobon/",
+  "start_url": "/robobon/",
+  "scope": "/robobon/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1118",
+  "theme_color": "#0f1720"
+}

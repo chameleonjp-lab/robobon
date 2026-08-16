@@ -15,6 +15,7 @@ import { BattleAudio, soundForEvent } from './audio/battle-audio';
 import { battleEventText, formatBattleStatus, formatCombatantMetric } from './battle-status';
 import {
   assessEvidence,
+  collectAnalysisEvidence,
   createExperimentIdeas,
   evidenceKindLabel,
   type AnalysisEvidence,
@@ -1122,15 +1123,12 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
     for (const event of newEvents) {
       const soundType = soundForEvent(event.type);
       if (soundType) audio.play(soundType);
-      if (evidence.length >= 3) continue;
-      if (event.type === 'PROJECTILE_FIRED' && event.sourceId === PLAYER_ID) {
-        evidence.push({ kind: 'rule-choice', tick: event.tick, text: `${selection?.rule?.id ?? '規則なし'}が発射を選びました` });
-      } else if (event.type === 'HIT_CONFIRMED') {
-        evidence.push({ kind: 'hit', tick: event.tick, text: `弾が機体${event.targetId}へ命中しました` });
-      } else if (event.type === 'ACTION_UNAVAILABLE' && event.sourceId === PLAYER_ID) {
-        evidence.push({ kind: 'blocked', tick: event.tick, text: `発射できませんでした（${event.reason ?? '理由不明'}）` });
-      }
     }
+    evidence.push(...collectAnalysisEvidence(
+      newEvents,
+      selection?.rule?.id ?? null,
+      Math.max(0, 3 - evidence.length),
+    ));
     if (newEvents.length > 0) {
       updateBattleEventLog(battleStatus, after);
       const message = newEvents

@@ -28,6 +28,8 @@ export interface ExperimentIdea {
   readonly detail: string;
 }
 
+const DEFAULT_MAX_EVIDENCE = 3;
+
 const GAP_LABELS: Record<EvidenceKind, string> = {
   'rule-choice': '実行中の規則が選ばれた場面',
   hit: '命中または被弾の結果',
@@ -36,6 +38,45 @@ const GAP_LABELS: Record<EvidenceKind, string> = {
 
 function hasPlayerEvent(events: readonly CombatEvent[], type: CombatEvent['type']): boolean {
   return events.some((event) => event.type === type && (event.sourceId === undefined || event.sourceId === 1));
+}
+
+/**
+ * Converts combat events into bounded, user-facing observations.
+ * This reports observations rather than causes: enemy-only action failures
+ * are ignored, while either side's hit remains an observed hit result.
+ */
+export function collectAnalysisEvidence(
+  events: readonly CombatEvent[],
+  selectedRuleId: string | null,
+  maxItems = DEFAULT_MAX_EVIDENCE,
+): readonly AnalysisEvidence[] {
+  if (!Number.isSafeInteger(maxItems) || maxItems < 0) {
+    throw new RangeError('maxItems must be a non-negative safe integer');
+  }
+  const collected: AnalysisEvidence[] = [];
+  for (const event of events) {
+    if (collected.length >= maxItems) break;
+    if (event.type === 'PROJECTILE_FIRED' && event.sourceId === 1) {
+      collected.push({
+        kind: 'rule-choice',
+        tick: event.tick,
+        text: `${selectedRuleId ?? '規則なし'}が発射を選びました`,
+      });
+    } else if (event.type === 'HIT_CONFIRMED') {
+      collected.push({
+        kind: 'hit',
+        tick: event.tick,
+        text: `弾が機体${event.targetId ?? '不明'}へ命中しました`,
+      });
+    } else if (event.type === 'ACTION_UNAVAILABLE' && event.sourceId === 1) {
+      collected.push({
+        kind: 'blocked',
+        tick: event.tick,
+        text: `発射できませんでした（${event.reason ?? '理由不明'}）`,
+      });
+    }
+  }
+  return collected;
 }
 
 /** Describes what was observed without turning correlation into a cause. */

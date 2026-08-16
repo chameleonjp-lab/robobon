@@ -29,11 +29,35 @@ const REQUIRED_PARTICIPANTS = 5;
 const TARGET_COUNT = 4;
 const INPUT_LIMIT_SECONDS = 30;
 const INTRO_BATTLE_LIMIT_SECONDS = 60;
+const MAX_ANONYMOUS_ID_LENGTH = 32;
+const MAX_NOTE_LENGTH = 500;
 
 function assertSeconds(value: number | null, label: string): void {
   if (value !== null && (!Number.isFinite(value) || value < 0)) {
     throw new RangeError(`${label} must be null or a non-negative finite number`);
   }
+}
+
+function assertBoolean(value: boolean | null, label: string): void {
+  if (value !== null && typeof value !== 'boolean') {
+    throw new RangeError(`${label} must be null or boolean`);
+  }
+}
+
+function assertRecordShape(record: FirstUseRecord): void {
+  if (
+    typeof record.anonymousId !== 'string'
+    || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(record.anonymousId)
+    || record.anonymousId.length > MAX_ANONYMOUS_ID_LENGTH
+  ) {
+    throw new RangeError('anonymousId must be a short lowercase anonymous identifier');
+  }
+  if (typeof record.note !== 'string' || record.note.length > MAX_NOTE_LENGTH) {
+    throw new RangeError(`note must be a string of at most ${MAX_NOTE_LENGTH} characters`);
+  }
+  assertBoolean(record.explainedQuestion, 'explainedQuestion');
+  assertBoolean(record.explainedNextAction, 'explainedNextAction');
+  assertBoolean(record.selfInitiatedReplay, 'selfInitiatedReplay');
 }
 
 function countBoolean(records: readonly FirstUseRecord[], field: 'explainedQuestion' | 'explainedNextAction'): number {
@@ -44,7 +68,8 @@ function countBoolean(records: readonly FirstUseRecord[], field: 'explainedQuest
 export function evaluateFirstUse(records: readonly FirstUseRecord[]): FirstUseSummary {
   const ids = new Set<string>();
   for (const record of records) {
-    if (!record.anonymousId || ids.has(record.anonymousId)) throw new RangeError('anonymousId must be unique and non-empty');
+    assertRecordShape(record);
+    if (ids.has(record.anonymousId)) throw new RangeError('anonymousId must be unique');
     ids.add(record.anonymousId);
     assertSeconds(record.meaningfulInputSeconds, 'meaningfulInputSeconds');
     assertSeconds(record.introBattleEndSeconds, 'introBattleEndSeconds');
@@ -99,4 +124,11 @@ export function decideFirstUse(summary: FirstUseSummary, improvementRounds: numb
   return improvementRounds < 2 ? 'improve' : 'stop-or-redesign';
 }
 
-export { INPUT_LIMIT_SECONDS, INTRO_BATTLE_LIMIT_SECONDS, REQUIRED_PARTICIPANTS, TARGET_COUNT };
+export {
+  INPUT_LIMIT_SECONDS,
+  INTRO_BATTLE_LIMIT_SECONDS,
+  MAX_ANONYMOUS_ID_LENGTH,
+  MAX_NOTE_LENGTH,
+  REQUIRED_PARTICIPANTS,
+  TARGET_COUNT,
+};

@@ -660,6 +660,70 @@ h1 {
   line-height: 1.55;
 }
 
+.analysis-timeline,
+.battle-replay {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid #456174;
+  border-radius: 0.55rem;
+  background: #111f2a;
+}
+
+.analysis-timeline h3,
+.battle-replay h3 {
+  margin: 0;
+}
+
+.battle-timeline {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 0.2rem 0 1.4rem;
+  color: #dce7ee;
+}
+
+.battle-timeline__entry {
+  padding-left: 0.15rem;
+}
+
+.battle-timeline__button {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.55rem 0.65rem;
+  border-color: #536f82;
+  color: #e7edf3;
+  background: #172936;
+  text-align: left;
+  line-height: 1.35;
+}
+
+.battle-timeline__button:not(:disabled):hover,
+.battle-timeline__button:not(:disabled):focus-visible {
+  border-color: #62d4dc;
+  background: #1c3d49;
+}
+
+.battle-replay-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 20rem;
+  border: 1px solid #456174;
+  border-radius: 0.45rem;
+  background: #0b1118;
+}
+
+.battle-replay-status {
+  min-height: 1.4em;
+  margin: 0;
+  color: #b8a1ff;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 @media (min-width: 520px) {
   .spike-shell {
     padding-right: 1.25rem;

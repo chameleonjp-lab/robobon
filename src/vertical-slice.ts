@@ -38,6 +38,14 @@ import {
   type ProgramDocument,
   type ProgramStore,
 } from './storage';
+import {
+  INTRO_MISSIONS,
+  missionById,
+  missionStage,
+  type MissionId,
+  type MissionSpec,
+  type MissionStageId,
+} from './missions';
 
 type SlicePhase = 'edit' | 'battle' | 'analysis';
 
@@ -119,6 +127,7 @@ interface SliceElements {
   readonly root: HTMLElement;
   readonly content: HTMLElement;
   readonly storage: ProgramStore;
+  selectedMission: MissionId;
   program: ProgramDocument;
   storageStatus?: string;
   storageStatusElement?: HTMLElement;
@@ -353,10 +362,10 @@ function makeCombatant(id: number, x: number): CombatantState {
   };
 }
 
-function initialCombatState(): CombatState {
+function initialCombatState(maxTicks = MAX_BATTLE_TICKS): CombatState {
   return createCombatState({
     arena: ARENA,
-    maxTicks: MAX_BATTLE_TICKS,
+    maxTicks,
     combatants: [makeCombatant(PLAYER_ID, 190), makeCombatant(ENEMY_ID, 430)],
   });
 }
@@ -538,6 +547,57 @@ function renderHeader(content: HTMLElement, phase: SlicePhase): void {
       : '観測した事実から、規則を1か所だけ直して再戦します。';
   heading.append(eyebrow, title, description);
   content.append(heading);
+}
+
+function renderMissionPanel(
+  mission: MissionSpec,
+  stageId: MissionStageId,
+  selectable: boolean,
+  onChange?: (missionId: MissionId) => void,
+): HTMLElement {
+  const panel = make('section', 'mission-panel');
+  panel.setAttribute('aria-labelledby', 'mission-panel-title');
+  const title = make('h2');
+  title.id = 'mission-panel-title';
+  title.textContent = `任務 ${mission.number}: ${mission.title}`;
+  const question = make('p', 'mission-question');
+  question.textContent = mission.question;
+  const objective = make('p', 'slice-note');
+  objective.textContent = `今回見るもの: ${mission.focus}。${mission.objective}`;
+
+  if (selectable && onChange) {
+    const field = make('label', 'mission-select-field');
+    const caption = make('span');
+    caption.textContent = '任務を選ぶ';
+    const select = make('select', 'mission-select');
+    select.setAttribute('aria-label', '任務を選ぶ');
+    for (const candidate of INTRO_MISSIONS) {
+      const option = make('option');
+      option.value = candidate.id;
+      option.textContent = `任務${candidate.number}: ${candidate.title}`;
+      option.selected = candidate.id === mission.id;
+      select.append(option);
+    }
+    select.addEventListener('change', () => onChange(select.value as MissionId));
+    field.append(caption, select);
+    panel.append(field);
+  }
+
+  const stageHeading = make('h3');
+  stageHeading.textContent = '今回の進み方';
+  const stageList = make('ol', 'mission-stage-list');
+  for (const stage of mission.stages) {
+    const item = make('li', `mission-stage${stage.id === stageId ? ' mission-stage--current' : ''}`);
+    if (stage.id === stageId) item.setAttribute('aria-current', 'step');
+    const stageTitle = make('strong');
+    stageTitle.textContent = stage.title;
+    const instruction = make('span');
+    instruction.textContent = stage.id === stageId ? missionStage(mission, stageId).instruction : stage.instruction;
+    item.append(stageTitle, instruction);
+    stageList.append(item);
+  }
+  panel.append(title, question, objective, stageHeading, stageList);
+  return panel;
 }
 
 function storageError(error: unknown): string {
@@ -760,11 +820,16 @@ function mountEditor(
   renderHeader(elements.content, 'edit');
 
   const currentRules = cloneRules(history.rules);
+  const mission = missionById(elements.selectedMission);
   elements.program = updateProgramRules(elements.program, currentRules);
   const preflight = inspectPreBattleRules(currentRules);
 
   const section = make('section', 'slice-panel');
   section.setAttribute('aria-labelledby', 'slice-editor-title');
+  const missionPanel = renderMissionPanel(mission, 'edit', true, (missionId) => {
+    elements.selectedMission = missionId;
+    mountEditor(elements, cloneRules(currentRules), openBattle, history);
+  });
   const title = make('h2');
   title.id = 'slice-editor-title';
   title.textContent = '作戦編集';
@@ -904,13 +969,14 @@ function mountEditor(
   const storagePanel = mountProgramStoragePanel(elements, (program) => {
     mountEditor(elements, cloneRules(program.rules), openBattle, createRuleEditHistory(program.rules));
   });
-  section.append(title, note, capacity, historyNote, storagePanel, list, preflightPanel, capacityNote, actions);
+  section.append(missionPanel, title, note, capacity, historyNote, storagePanel, list, preflightPanel, capacityNote, actions);
   elements.content.append(section);
 }
 
 function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: OpenAnalysis): void {
   elements.content.replaceChildren();
   renderHeader(elements.content, 'battle');
+  const mission = missionById(elements.selectedMission);
   const section = make('section', 'slice-panel slice-panel--battle');
   const canvas = make('canvas', 'battle-canvas');
   canvas.width = ARENA.maxX;
@@ -972,11 +1038,11 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
   qualityNote.id = 'battle-quality-note';
   qualityNote.textContent = '画質は停止中に変更できます。勝敗と重要情報は変わりません。';
   controls.append(pause, speedControl, qualityControl, reducedControl, sound, edit);
-  section.append(canvas, activeRule, battleStatus.root, controls);
+  section.append(renderMissionPanel(mission, 'battle', false), canvas, activeRule, battleStatus.root, controls);
   section.append(qualityNote);
   elements.content.append(section);
 
-  let state = initialCombatState();
+  let state = initialCombatState(mission.battleTicks);
   const replayFrames: ReplayFrame[] = [{ state: compactReplayState(state), ruleId: null }];
   const audio = new BattleAudio();
   let selection: RuleSelection | null = null;
@@ -1197,6 +1263,7 @@ function mountAnalysis(
 ): void {
   elements.content.replaceChildren();
   renderHeader(elements.content, 'analysis');
+  const mission = missionById(elements.selectedMission);
   const section = make('section', 'slice-panel');
   const title = make('h2');
   title.textContent = '戦闘結果';
@@ -1361,7 +1428,7 @@ function mountAnalysis(
     );
   });
   actions.append(retry, edit);
-  section.append(title, outcome, reason, heading, list, assessmentPanel, experimentsPanel, timelinePanel, replayPanel, actions);
+  section.append(renderMissionPanel(mission, 'analysis', false), title, outcome, reason, heading, list, assessmentPanel, experimentsPanel, timelinePanel, replayPanel, actions);
   elements.content.append(section);
 }
 
@@ -1373,6 +1440,7 @@ function mountVerticalSlice(root: HTMLElement): void {
     root: section,
     content,
     storage: createProgramStore(),
+    selectedMission: 'dock-approach',
     program: createProgramDocument(DEFAULT_RULES),
   };
   const startEditor = (rules: RuleCard[]): void => {

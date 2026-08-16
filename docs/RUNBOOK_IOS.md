@@ -10,8 +10,8 @@ P0〜P6ではGitHub Pagesを有効化しません。Actionsの成果物はビル
 
 1. GitHubアプリまたはSafariで対象PRを開き、baseが`main`、headが作業ブランチであることを確認する。
 2. PR上部のChecksから`CI / build`を開き、全ステップが成功していること、失敗時は再実行リンクが表示されていることを確認する。
-3. PRのheadに表示された完全なコミットSHAと、CI実行のコミットSHAが一致することを照合する。短縮SHAだけで承認しない。
-4. CIのSummaryから`robobon-dist-<完全なコミットSHA>`という名前の成果物をダウンロードし、Filesへ保存する。成果物の保存期間はActionsに表示された期限を記録する。
+3. PRのheadに表示された完全なコミットSHAと、workflow runの`head_sha`が一致することを照合する。短縮SHAだけで承認しない。
+4. CIのSummaryから`robobon-dist-<workflowのgithub.sha>`という名前の成果物をダウンロードし、Filesへ保存する。PRイベントではこの成果物名のSHAが合成マージSHAになるため、PR head SHAと同じでなくても直ちに不一致とはしない。成果物の保存期間はActionsに表示された期限を記録する。
 5. `dist/index.html`と生成物のURLが`/robobon/`を使うことを確認し、404・旧slugの配信パス・外部scriptの読み込みがないことを記録する。ZIPの閲覧だけでは、Canvas、音、入力、Safariのメモリを検査したことにならない。
 
 ## 実機Previewを使う場合

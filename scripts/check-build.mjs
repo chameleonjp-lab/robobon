@@ -9,6 +9,7 @@ const html = await readFile(indexPath, 'utf8').catch((error) => {
 const required = [
   '<meta name="viewport"',
   '/robobon/',
+  '<link rel="manifest" href="/robobon/manifest.webmanifest"',
   '<script type="module"',
 ];
 
@@ -33,6 +34,7 @@ if (html.includes('/src/main.ts')) {
 }
 
 const requiredAssets = [
+  'manifest.webmanifest',
   'assets/asset-manifest.json',
   'assets/visual-samples/home.svg',
   'assets/visual-samples/planner.svg',
@@ -44,6 +46,19 @@ for (const asset of requiredAssets) {
   await access(resolve('dist', asset)).catch(() => {
     throw new Error(`必須の見本素材が配信物にありません: ${asset}`);
   });
+}
+
+const manifest = JSON.parse(await readFile(resolve('dist/manifest.webmanifest'), 'utf8'));
+for (const [key, expected] of [
+  ['name', 'ロボボン'],
+  ['short_name', 'ロボボン'],
+  ['id', '/robobon/'],
+  ['start_url', '/robobon/'],
+  ['scope', '/robobon/'],
+  ['display', 'standalone'],
+  ['orientation', 'portrait'],
+]) {
+  if (manifest[key] !== expected) throw new Error(`manifest.webmanifestの${key}が不正です: ${manifest[key]}`);
 }
 
 console.log('build smoke check passed: /robobon/');

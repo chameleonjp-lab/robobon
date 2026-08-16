@@ -660,6 +660,67 @@ h1 {
   line-height: 1.55;
 }
 
+.analysis-evidence,
+.analysis-experiments {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.7rem;
+  border: 1px solid #456174;
+  border-radius: 0.55rem;
+  background: #111f2a;
+}
+
+.analysis-evidence h3,
+.analysis-evidence h4,
+.analysis-experiments h3 {
+  margin: 0;
+  color: #f8fafc;
+}
+
+.analysis-evidence h4 {
+  font-size: 0.9rem;
+}
+
+.analysis-evidence__status {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.analysis-evidence__status--limited {
+  color: #ffe08a;
+}
+
+.analysis-evidence__status--insufficient {
+  color: #ffb0b8;
+}
+
+.analysis-gap-list,
+.analysis-experiment-list {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 1.35rem;
+  color: #dce7ee;
+  line-height: 1.45;
+}
+
+.analysis-experiment {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.5rem 0.55rem;
+  border-left: 0.2rem solid #62d4dc;
+  background: #172936;
+}
+
+.analysis-experiment strong {
+  color: #f8fafc;
+}
+
+.analysis-experiment span {
+  color: #c7d5df;
+  font-size: 0.86rem;
+}
+
 .analysis-timeline,
 .battle-replay {
   display: grid;

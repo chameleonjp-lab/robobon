@@ -6,6 +6,18 @@
 
 P0〜P6ではGitHub Pagesを有効化しません。Actionsの成果物はビルドと配信パスを確認するためのZIPであり、Safariでそのまま動くPreviewとは限りません。ZIPを開けたことだけで、iPhone実機受入や利用者テストを合格にしないでください。
 
+## PagesをActions配信へ切り替える場合
+
+Pagesの公開元が「Deploy from a branch」のままだと、リポジトリの`index.html`がそのまま配信され、`/src/main.ts`や未ビルドの素材を参照して画面が表示されません。`Deploy GitHub Pages`ワークフローで`dist`を配信する場合は、次の順に操作します。
+
+1. GitHubの`Settings`→`Pages`→`Build and deployment`→`Source`を`GitHub Actions`へ変更する。
+2. `Deploy GitHub Pages`ワークフローをmainへマージする。
+3. `Actions`→`Deploy GitHub Pages`→`Run workflow`→`main`→`Run workflow`を選ぶ。
+4. `build`と`deploy`が成功してから、`https://chameleonjp-lab.github.io/robobon/`を開く。
+5. Safariで古いHTMLが残る場合は、ページを再読み込みし、`/robobon/manifest.webmanifest`が404でないことを確認する。
+
+Sourceを切り替えずにワークフローだけ実行しても、Pagesの公開元は変わりません。公開を続けるか停止するかは、名称・独自性・手動受入の判定後に所有者が決めます。
+
 ## PRを確認する（5操作以内の目安）
 
 1. GitHubアプリまたはSafariで対象PRを開き、baseが`main`、headが作業ブランチであることを確認する。

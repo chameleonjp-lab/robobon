@@ -271,6 +271,82 @@ h1 {
   background: rgb(15 23 32 / 86%);
 }
 
+.mission-panel {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px solid #4c6f7d;
+  border-left: 0.3rem solid #62d4dc;
+  border-radius: 0.65rem;
+  background: #12242d;
+}
+
+.mission-panel h2,
+.mission-panel h3 {
+  margin: 0;
+  color: #f8fafc;
+}
+
+.mission-panel h3 {
+  font-size: 1rem;
+}
+
+.mission-question {
+  margin: 0;
+  color: #f5d78b;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.mission-select-field {
+  display: grid;
+  gap: 0.25rem;
+  color: #dce7ee;
+  font-size: 0.85rem;
+}
+
+.mission-select,
+.mission-select-field select {
+  min-height: 44px;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #597386;
+  border-radius: 0.35rem;
+  color: #f8fafc;
+  background: #0f1922;
+  font: inherit;
+}
+
+.mission-stage-list {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 1.35rem;
+  color: #c7d5df;
+}
+
+.mission-stage {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.45rem 0.5rem;
+  border-left: 0.2rem solid #456174;
+  line-height: 1.4;
+}
+
+.mission-stage strong {
+  color: #e7edf3;
+}
+
+.mission-stage--current {
+  border-left-color: #62d4dc;
+  background: #1a3540;
+}
+
+.mission-stage--current strong {
+  color: #ffffff;
+}
+
 .rule-list {
   display: grid;
   gap: 0.65rem;

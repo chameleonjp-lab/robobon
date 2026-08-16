@@ -41,5 +41,10 @@ describe('P4-22 first-use acceptance summary', () => {
     expect(decideFirstUse(summary, 0)).toBe('insufficient-data');
     expect(() => evaluateFirstUse([record('a'), record('a')])).toThrow(RangeError);
   });
-});
 
+  it('rejects malformed identifiers, notes, and boolean fields before counting', () => {
+    expect(() => evaluateFirstUse([record(' user-1')])).toThrow(RangeError);
+    expect(() => evaluateFirstUse([record('u01', { note: 'x'.repeat(501) })])).toThrow(RangeError);
+    expect(() => evaluateFirstUse([record('u01', { explainedQuestion: 'yes' as never })])).toThrow(RangeError);
+  });
+});

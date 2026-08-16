@@ -34,8 +34,38 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Write review manifest
+        env:
+          REVIEW_REPOSITORY: ${{ github.repository }}
+          REVIEW_EVENT: ${{ github.event_name }}
+          REVIEW_RUN_ID: ${{ github.run_id }}
+          REVIEW_RUN_ATTEMPT: ${{ github.run_attempt }}
+          REVIEW_WORKFLOW_SHA: ${{ github.sha }}
+          REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+          REVIEW_ARTIFACT_NAME: robobon-dist-${{ github.sha }}
+        run: npm run write:review-manifest
+
       - name: Check the Pages-path artifact
         run: npm run check:build
+
+      - name: Summarize review provenance
+        env:
+          REVIEW_EVENT: ${{ github.event_name }}
+          REVIEW_WORKFLOW_SHA: ${{ github.sha }}
+          REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+          REVIEW_ARTIFACT_NAME: robobon-dist-${{ github.sha }}
+        run: |
+          {
+            echo "## Review artifact provenance"
+            printf '%s\n' "- event: ${REVIEW_EVENT}"
+            printf '%s\n' "- head SHA: \`${REVIEW_HEAD_SHA}\`"
+            printf '%s\n' "- base SHA: \`${REVIEW_BASE_SHA}\`"
+            printf '%s\n' "- workflow SHA: \`${REVIEW_WORKFLOW_SHA}\`"
+            printf '%s\n' "- artifact: \`${REVIEW_ARTIFACT_NAME}\`"
+            echo "- base path: \`/robobon/\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload review artifact
         uses: actions/upload-artifact@615b319bd27bb32c3d64dca6b6ed6974d5fbe653

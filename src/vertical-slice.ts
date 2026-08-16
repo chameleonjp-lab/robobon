@@ -14,6 +14,12 @@ import { drawBattleScene, type BattleQuality, type BattleRenderOptions } from '.
 import { BattleAudio, soundForEvent } from './audio/battle-audio';
 import { battleEventText, formatBattleStatus, formatCombatantMetric } from './battle-status';
 import {
+  compactReplayState,
+  selectReplayWindow,
+  timelineEntries,
+  type ReplayFrame,
+} from './replay';
+import {
   MAX_PROGRAM_BYTES,
   MAX_PROGRAM_NAME_LENGTH,
   MAX_PROGRAM_SLOTS,
@@ -36,6 +42,8 @@ const MAX_VERTICAL_SLICE_RULES = 8;
 const MAX_RULE_UNDO_STEPS = 20;
 const MIN_DURATION_TICKS = 6;
 const MAX_DURATION_TICKS = 60 * 10;
+/** One frame per simulation tick for the 20-second vertical slice. */
+const MAX_REPLAY_FRAMES = 1_201;
 const PLAYER_ID = 1;
 const ENEMY_ID = 2;
 const DEFAULT_BATTLE_SPEED = 1 as const;
@@ -97,6 +105,12 @@ interface Evidence {
   readonly tick: number;
   readonly text: string;
 }
+
+type OpenAnalysis = (
+  state: CombatState,
+  evidence: readonly Evidence[],
+  replayFrames: readonly ReplayFrame[],
+) => void;
 
 interface SliceElements {
   readonly root: HTMLElement;
@@ -891,7 +905,7 @@ function mountEditor(
   elements.content.append(section);
 }
 
-function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (state: CombatState, evidence: readonly Evidence[]) => void): void {
+function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: OpenAnalysis): void {
   elements.content.replaceChildren();
   renderHeader(elements.content, 'battle');
   const section = make('section', 'slice-panel slice-panel--battle');
@@ -960,6 +974,7 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
   elements.content.append(section);
 
   let state = initialCombatState();
+  const replayFrames: ReplayFrame[] = [{ state: compactReplayState(state), ruleId: null }];
   const audio = new BattleAudio();
   let selection: RuleSelection | null = null;
   let evidence: Evidence[] = [];
@@ -1099,13 +1114,15 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
     const enemy = enemyCommand(state);
     if (enemy) commands.push(enemy);
     state = stepCombat(state, commands);
+    replayFrames.push({ state: compactReplayState(state), ruleId: selection?.rule?.id ?? null });
+    if (replayFrames.length > MAX_REPLAY_FRAMES) replayFrames.shift();
     recordEvents(before, state);
     updateBattleStatus(battleStatus, state);
     if (state.outcome.status === 'finished') {
       stopAnimation();
       cleanupLifecycle();
       audio.dispose();
-      openAnalysis(state, evidence);
+      openAnalysis(state, evidence, replayFrames);
     }
   };
 
@@ -1168,7 +1185,13 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: (
   animationFrame = requestAnimationFrame(frame);
 }
 
-function mountAnalysis(elements: SliceElements, rules: RuleCard[], state: CombatState, evidence: readonly Evidence[]): void {
+function mountAnalysis(
+  elements: SliceElements,
+  rules: RuleCard[],
+  state: CombatState,
+  evidence: readonly Evidence[],
+  replayFrames: readonly ReplayFrame[],
+): void {
   elements.content.replaceChildren();
   renderHeader(elements.content, 'analysis');
   const section = make('section', 'slice-panel');
@@ -1192,13 +1215,111 @@ function mountAnalysis(elements: SliceElements, rules: RuleCard[], state: Combat
       list.append(entry);
     }
   }
+
+  const timelinePanel = make('section', 'analysis-timeline');
+  const timelineHeading = make('h3');
+  timelineHeading.id = 'analysis-timeline-title';
+  timelineHeading.textContent = '出来事の時間線';
+  timelinePanel.setAttribute('aria-labelledby', timelineHeading.id);
+  const timelineNote = make('p', 'slice-note');
+  timelineNote.textContent = '出来事を選ぶと、その場面の3秒前から短く再生します。記録は直近80件まで表示します。';
+  const timelineList = make('ol', 'battle-timeline');
+  const entries = timelineEntries(state.events, replayFrames);
+  if (entries.length === 0) {
+    const empty = make('li');
+    empty.textContent = '再生できる出来事はまだありません。';
+    timelineList.append(empty);
+  }
+
+  const replayPanel = make('section', 'battle-replay');
+  const replayHeading = make('h3');
+  replayHeading.id = 'battle-replay-title';
+  replayHeading.textContent = '選択した場面を再生';
+  replayPanel.setAttribute('aria-labelledby', replayHeading.id);
+  const replayCanvas = make('canvas', 'battle-replay-canvas');
+  replayCanvas.width = ARENA.maxX;
+  replayCanvas.height = ARENA.maxY;
+  replayCanvas.setAttribute('role', 'img');
+  replayCanvas.setAttribute('aria-label', '選択した出来事の3秒前からの戦闘再生');
+  const replayContext = replayCanvas.getContext('2d');
+  const replayStatus = make('p', 'battle-replay-status');
+  replayStatus.setAttribute('role', 'status');
+  replayStatus.setAttribute('aria-live', 'polite');
+  replayStatus.textContent = '時間線の項目を選ぶと、ここで再生します。';
+  replayPanel.append(replayHeading, replayCanvas, replayStatus);
+
+  let replayAnimationFrame = 0;
+  const stopReplay = (): void => {
+    if (replayAnimationFrame !== 0) cancelAnimationFrame(replayAnimationFrame);
+    replayAnimationFrame = 0;
+  };
+  const playReplay = (targetTick: number): void => {
+    stopReplay();
+    const replayWindow = replayContext ? selectReplayWindow(replayFrames, targetTick) : null;
+    if (!replayWindow || !replayContext) {
+      replayStatus.textContent = 'この出来事の再生データは保持されていません。';
+      return;
+    }
+    const renderFrame = (frame: ReplayFrame): void => {
+      drawBattle(replayContext, frame.state, frame.ruleId, { quality: 'low', effects: 'reduced' });
+    };
+    const lastFrame = replayWindow.frames.at(-1);
+    if (!lastFrame) return;
+    const rangeLabel = replayWindow.fullWindow ? '3秒前' : '記録開始時点';
+    replayStatus.textContent = `${rangeLabel}（${(replayWindow.startTick / 60).toFixed(1)}秒）から再生中…`;
+    if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      renderFrame(lastFrame);
+      replayStatus.textContent = `演出を減らす設定のため、${(replayWindow.targetTick / 60).toFixed(1)}秒の場面を表示しました。`;
+      return;
+    }
+    let index = 0;
+    const advance = (): void => {
+      const frame = replayWindow.frames[index];
+      if (frame) renderFrame(frame);
+      if (index >= replayWindow.frames.length - 1) {
+        replayAnimationFrame = 0;
+        replayStatus.textContent = `${(replayWindow.targetTick / 60).toFixed(1)}秒の出来事を表示しました。`;
+        return;
+      }
+      index += 1;
+      replayAnimationFrame = requestAnimationFrame(advance);
+    };
+    if (typeof requestAnimationFrame !== 'function') {
+      renderFrame(lastFrame);
+      replayStatus.textContent = `${(replayWindow.targetTick / 60).toFixed(1)}秒の場面を表示しました。`;
+      return;
+    }
+    replayAnimationFrame = requestAnimationFrame(advance);
+  };
+
+  for (const entry of entries) {
+    const item = make('li', 'battle-timeline__entry');
+    const replayButton = button(`${(entry.event.tick / 60).toFixed(1)}秒  ${entry.message}`, 'battle-timeline__button');
+    replayButton.disabled = !entry.replayAvailable;
+    replayButton.setAttribute('aria-label', entry.replayAvailable
+      ? `${(entry.event.tick / 60).toFixed(1)}秒の出来事を3秒前から再生`
+      : `${(entry.event.tick / 60).toFixed(1)}秒の出来事（再生データなし）`);
+    replayButton.addEventListener('click', () => playReplay(entry.event.tick));
+    item.append(replayButton);
+    timelineList.append(item);
+  }
+  timelinePanel.append(timelineHeading, timelineNote, timelineList);
+
   const actions = make('div', 'slice-actions');
   const retry = button('規則を直して再戦', 'slice-button slice-button--primary');
-  retry.addEventListener('click', () => mountEditor(elements, cloneRules(rules), (nextRules) => mountBattle(elements, nextRules, (nextState, nextEvidence) => mountAnalysis(elements, nextRules, nextState, nextEvidence))));
+  retry.addEventListener('click', () => {
+    stopReplay();
+    mountEditor(elements, cloneRules(rules), (nextRules) => mountBattle(elements, nextRules, (nextState, nextEvidence, nextReplay) => mountAnalysis(elements, nextRules, nextState, nextEvidence, nextReplay))
+    );
+  });
   const edit = button('作戦編集へ戻る', 'slice-button slice-button--secondary');
-  edit.addEventListener('click', () => mountEditor(elements, cloneRules(rules), (nextRules) => mountBattle(elements, nextRules, (nextState, nextEvidence) => mountAnalysis(elements, nextRules, nextState, nextEvidence))));
+  edit.addEventListener('click', () => {
+    stopReplay();
+    mountEditor(elements, cloneRules(rules), (nextRules) => mountBattle(elements, nextRules, (nextState, nextEvidence, nextReplay) => mountAnalysis(elements, nextRules, nextState, nextEvidence, nextReplay))
+    );
+  });
   actions.append(retry, edit);
-  section.append(title, outcome, reason, heading, list, actions);
+  section.append(title, outcome, reason, heading, list, timelinePanel, replayPanel, actions);
   elements.content.append(section);
 }
 
@@ -1213,7 +1334,7 @@ function mountVerticalSlice(root: HTMLElement): void {
     program: createProgramDocument(DEFAULT_RULES),
   };
   const startEditor = (rules: RuleCard[]): void => {
-    mountEditor(elements, rules, (nextRules) => mountBattle(elements, nextRules, (state, evidence) => mountAnalysis(elements, nextRules, state, evidence)));
+    mountEditor(elements, rules, (nextRules) => mountBattle(elements, nextRules, (state, evidence, replayFrames) => mountAnalysis(elements, nextRules, state, evidence, replayFrames)));
   };
   startEditor(cloneRules(DEFAULT_RULES));
   section.append(content);

@@ -1,5 +1,5 @@
 import { access, readdir, readFile } from 'node:fs/promises';
-import { relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 const indexPath = resolve('dist/index.html');
 const html = await readFile(indexPath, 'utf8').catch((error) => {
@@ -78,6 +78,7 @@ if (!Array.isArray(assetManifest.assets) || assetManifest.assets.length === 0) {
 }
 
 const catalog = await readFile(resolve('docs/ASSET_CATALOG.md'), 'utf8');
+const distRoot = resolve('dist');
 const manifestIds = new Set();
 const manifestPaths = new Set();
 for (const asset of assetManifest.assets) {
@@ -101,7 +102,12 @@ for (const asset of assetManifest.assets) {
   if (!catalog.includes(`\`${asset.id}\``) || !catalog.includes(`\`${asset.path.replace(/^assets\//, 'public/assets/')}\``)) {
     throw new Error(`素材台帳にasset-manifest.jsonの記載がありません: ${asset.id}`);
   }
-  await access(resolve('dist', asset.path)).catch(() => {
+  const resolvedAssetPath = resolve(distRoot, asset.path);
+  const relativeAssetPath = relative(distRoot, resolvedAssetPath);
+  if (isAbsolute(relativeAssetPath) || relativeAssetPath === '..' || relativeAssetPath.startsWith(`..${sep}`)) {
+    throw new Error(`asset-manifest.jsonのpathが配信範囲外です: ${asset.path}`);
+  }
+  await access(resolvedAssetPath).catch(() => {
     throw new Error(`asset-manifest.jsonの素材が配信物にありません: ${asset.path}`);
   });
 }
@@ -119,10 +125,6 @@ for (const assetPath of manifestPaths) {
   if (assetPath.startsWith('assets/visual-samples/') && !visualSampleFiles.includes(assetPath)) {
     throw new Error(`素材manifestに登録済みですが配信フォルダにありません: ${assetPath}`);
   }
-}
-
-if (relative(resolve('dist'), resolve('dist/assets/asset-manifest.json')).startsWith('..')) {
-  throw new Error('asset-manifest.jsonの検査対象パスが不正です');
 }
 
 const manifest = JSON.parse(await readFile(resolve('dist/manifest.webmanifest'), 'utf8'));

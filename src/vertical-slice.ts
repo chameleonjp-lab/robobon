@@ -1297,8 +1297,8 @@ function mountAnalysis(
     const replayButton = button(`${(entry.event.tick / 60).toFixed(1)}秒  ${entry.message}`, 'battle-timeline__button');
     replayButton.disabled = !entry.replayAvailable;
     replayButton.setAttribute('aria-label', entry.replayAvailable
-      ? `${(entry.event.tick / 60).toFixed(1)}秒の出来事を3秒前から再生`
-      : `${(entry.event.tick / 60).toFixed(1)}秒の出来事（再生データなし）`);
+      ? `${(entry.event.tick / 60).toFixed(1)}秒、${entry.message}。3秒前から再生`
+      : `${(entry.event.tick / 60).toFixed(1)}秒、${entry.message}（再生データなし）`);
     replayButton.addEventListener('click', () => playReplay(entry.event.tick));
     item.append(replayButton);
     timelineList.append(item);

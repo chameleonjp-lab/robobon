@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
-    "check:build": "node scripts/check-build.mjs"
+    "check:build": "node scripts/check-build.mjs",
+    "write:review-manifest": "node scripts/write-review-manifest.mjs"
   },
   "engines": {
     "node": ">=24.0.0"

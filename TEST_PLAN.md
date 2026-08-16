@@ -31,6 +31,7 @@ P0〜P6はActions成果物の検査までとし、GitHub Pagesを有効化しま
 | 単体検査 | 全Vitest成功 | Actionsのjob |
 | 本番ビルド | Vite build成功 | Actionsのjob |
 | Pages基準パス | `/robobon/`、必須素材、外部scriptなし | `check:build` |
+| 素材整合性 | manifest・台帳・配信ファイル、SVGの表示領域と読み上げ情報が一致 | `check:build` |
 | 由来確認 | `review-manifest.json`とActions SummaryのSHA・成果物名が一致 | ZIPとSummary |
 | 成果物保存 | `robobon-dist-<workflow SHA>`が取得できる | Actions artifact |
 

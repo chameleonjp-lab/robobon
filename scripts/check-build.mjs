@@ -110,6 +110,27 @@ for (const asset of assetManifest.assets) {
   await access(resolvedAssetPath).catch(() => {
     throw new Error(`asset-manifest.jsonの素材が配信物にありません: ${asset.path}`);
   });
+  if (asset.path.endsWith('.svg')) {
+    const svg = await readFile(resolvedAssetPath, 'utf8');
+    const rootMatch = svg.match(/^\s*<svg\b([^>]*)>/i);
+    if (!rootMatch) throw new Error(`SVGのroot要素がありません: ${asset.path}`);
+    const rootAttributes = rootMatch[1];
+    const viewBoxMatch = rootAttributes.match(/\bviewBox=["']([^"']+)["']/i);
+    const viewBox = viewBoxMatch?.[1].trim().split(/[\s,]+/).map(Number);
+    if (!viewBox || viewBox.length !== 4 || !viewBox.every(Number.isFinite) ||
+      viewBox[0] !== 0 || viewBox[1] !== 0 || viewBox[2] !== asset.width || viewBox[3] !== asset.height) {
+      throw new Error(`SVGのviewBoxとmanifest寸法が一致しません: ${asset.path}`);
+    }
+    for (const marker of ['role="img"', 'aria-labelledby=']) {
+      if (!rootAttributes.includes(marker)) throw new Error(`SVGのアクセシビリティ属性がありません: ${asset.path}`);
+    }
+    if (!/<title\b[^>]*>[^<]+<\/title>/i.test(svg) || !/<desc\b[^>]*>[^<]+<\/desc>/i.test(svg)) {
+      throw new Error(`SVGにtitle/descがありません: ${asset.path}`);
+    }
+    if (/<(?:script|foreignObject|image)\b/i.test(svg) || /(?:href|xlink:href)=["'](?:https?:|data:)/i.test(svg)) {
+      throw new Error(`SVGに許可しない埋め込みまたは外部参照があります: ${asset.path}`);
+    }
+  }
 }
 
 const visualSampleRoot = resolve('dist/assets/visual-samples');

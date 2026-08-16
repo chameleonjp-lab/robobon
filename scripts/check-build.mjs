@@ -19,6 +19,23 @@ for (const marker of required) {
   }
 }
 
+const cspMatch = html.match(/<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]+)"/i);
+if (!cspMatch) throw new Error('配信物にContent Security Policyがありません');
+for (const directive of [
+  "default-src 'self'",
+  "connect-src 'none'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+]) {
+  if (!cspMatch[1].split(';').map((value) => value.trim()).includes(directive)) {
+    throw new Error(`Content Security Policyに必要な制限がありません: ${directive}`);
+  }
+}
+if (html.indexOf('Content-Security-Policy') > html.indexOf('<link rel="manifest"')) {
+  throw new Error('Content Security Policyは最初の配信リソースより前に置いてください');
+}
+
 const legacySlug = ['robo', 'bo'].join('');
 
 if (html.includes(`/${legacySlug}/`) || new RegExp(`${legacySlug}(?!n)`, 'i').test(html)) {

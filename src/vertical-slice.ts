@@ -62,6 +62,11 @@ const MAX_REPLAY_FRAMES = 1_201;
 const PLAYER_ID = 1;
 const ENEMY_ID = 2;
 const DEFAULT_BATTLE_SPEED = 1 as const;
+const SUPABASE_URL = 'https://mlpnjgezrnhdxsxolyzj.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_drzcy0v97knU6FgjqSgBHw_0A9XPdFM';
+const GAME_SLUG = 'robobon';
+const CLIENT_VERSION = 'robobon-2026-08-31';
+const LAB_URL = 'https://chameleonjp-lab.github.io/chameleonjp_lab/';
 
 export type BattleSpeed = 1 | 2;
 
@@ -130,6 +135,7 @@ interface SliceElements {
   readonly storage: ProgramStore;
   selectedMission: MissionId;
   program: ProgramDocument;
+  playerName: string;
   storageStatus?: string;
   storageStatusElement?: HTMLElement;
   saveTimer?: number;
@@ -184,6 +190,113 @@ function button(label: string, className = 'slice-button'): HTMLButtonElement {
   element.type = 'button';
   element.textContent = label;
   return element;
+}
+
+interface RankingRow {
+  readonly rank_no?: number;
+  readonly display_name?: string;
+  readonly player_name?: string;
+  readonly score?: number;
+  readonly best_score?: number;
+}
+
+function loadPlayerName(): string {
+  try {
+    return (window.localStorage.getItem('robobon-player-name') ?? '').trim().slice(0, 20);
+  } catch {
+    return '';
+  }
+}
+
+function savePlayerName(value: string): void {
+  try {
+    window.localStorage.setItem('robobon-player-name', value);
+  } catch {
+    // Private browsing may disable storage; keep the name for this session.
+  }
+}
+
+function currentGameUrl(): string {
+  return window.location.href.split('#')[0] ?? window.location.href;
+}
+
+function homeShareMessage(): string {
+  return `ロボボン｜作戦を組んで自動戦闘を観測する実験ゲーム\n${currentGameUrl()}\n#カメレオンJP #ロボボン`;
+}
+
+function resultShareMessage(state: CombatState, score: number): string {
+  const outcome = state.outcome.winnerId === PLAYER_ID ? '自機の勝ち' : state.outcome.winnerId === ENEMY_ID ? '敵の勝ち' : '引き分け';
+  return `ロボボンで${outcome}！\n与えたダメージ ${score}点\n${currentGameUrl()}\n#カメレオンJP #ロボボン`;
+}
+
+async function shareOrCopy(message: string): Promise<'shared' | 'copied' | 'manual'> {
+  try {
+    if (typeof navigator.share === 'function') {
+      await navigator.share({ title: 'ロボボン', text: message });
+      return 'shared';
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return 'manual';
+  }
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
+    await navigator.clipboard.writeText(message);
+    return 'copied';
+  } catch {
+    return 'manual';
+  }
+}
+
+async function submitAndLoadRanking(
+  displayName: string,
+  score: number,
+  status: HTMLElement,
+  list: HTMLOListElement,
+): Promise<void> {
+  status.textContent = 'ランキング送信中…';
+  try {
+    await callRankingRpc('submit_score', {
+      p_display_name: displayName,
+      p_game_slug: GAME_SLUG,
+      p_score: Math.trunc(score),
+      p_client_version: CLIENT_VERSION,
+    });
+    const rows = await callRankingRpc<RankingRow[]>('get_best_score_ranking', {
+      p_game_slug: GAME_SLUG,
+      p_limit: 10,
+    });
+    list.replaceChildren();
+    const safeRows = Array.isArray(rows) ? rows.slice(0, 10) : [];
+    if (safeRows.length === 0) {
+      const item = make('li');
+      item.textContent = 'まだ記録がありません。';
+      list.append(item);
+    } else {
+      safeRows.forEach((row, index) => {
+        const item = make('li');
+        item.textContent = `${row.rank_no ?? index + 1}位　${row.display_name ?? row.player_name ?? 'ななし'}　${Number(row.score ?? row.best_score ?? 0)}点`;
+        list.append(item);
+      });
+    }
+    status.textContent = 'ランキングを更新しました。';
+  } catch {
+    status.textContent = 'ランキングを取得できませんでした。ゲーム結果は保存されています。';
+  }
+}
+
+async function callRankingRpc<T>(name: string, body: Record<string, unknown>): Promise<T> {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: SUPABASE_PUBLISHABLE_KEY,
+      Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error('ranking request failed');
+  return data as T;
 }
 
 function optionList<T extends string>(select: HTMLSelectElement, values: readonly T[], labels: Record<string, string>): void {
@@ -844,6 +957,22 @@ function mountEditor(
   historyNote.textContent = `変更履歴 ${history.undo.length}件。ドラッグ操作は使わず、確定した順番を保持します。`;
   const list = make('div', 'rule-list');
 
+  const playerNameField = make('label', 'player-name-field');
+  const playerNameCaption = make('span');
+  playerNameCaption.textContent = 'プレイヤー名（ランキング表示）';
+  const playerNameInput = make('input');
+  playerNameInput.type = 'text';
+  playerNameInput.maxLength = 20;
+  playerNameInput.required = true;
+  playerNameInput.autocomplete = 'name';
+  playerNameInput.placeholder = '20文字以内で入力';
+  playerNameInput.value = elements.playerName;
+  const playerNameStatus = make('small', 'player-name-status');
+  playerNameStatus.textContent = elements.playerName.length > 0
+    ? `${elements.playerName}さんの名前でランキングに参加します。`
+    : '名前を入力すると戦闘を開始できます。';
+  playerNameField.append(playerNameCaption, playerNameInput, playerNameStatus);
+
   const renderEdit = (nextRules: readonly RuleCard[]): void => {
     const nextHistory = commitRuleEdit(history, nextRules);
     elements.program = updateProgramRules(elements.program, nextHistory.rules);
@@ -958,19 +1087,53 @@ function mountEditor(
     mountEditor(elements, cloneRules(previous.rules), openBattle, previous);
   });
   const start = button('この作戦で開始', 'slice-button slice-button--primary');
-  start.disabled = !preflight.canStart;
+  start.disabled = !preflight.canStart || elements.playerName.length === 0;
   start.setAttribute('aria-describedby', 'preflight-title');
-  start.addEventListener('click', () => openBattle(cloneRules(currentRules)));
+  start.addEventListener('click', () => {
+    if (start.disabled) {
+      playerNameInput.focus();
+      return;
+    }
+    openBattle(cloneRules(currentRules));
+  });
+  playerNameInput.addEventListener('input', () => {
+    elements.playerName = playerNameInput.value.trim().slice(0, 20);
+    playerNameInput.value = elements.playerName;
+    savePlayerName(elements.playerName);
+    playerNameStatus.textContent = elements.playerName.length > 0
+      ? `${elements.playerName}さんの名前でランキングに参加します。`
+      : '名前を入力すると戦闘を開始できます。';
+    start.disabled = !preflight.canStart || elements.playerName.length === 0;
+  });
   const capacityNote = make('p', 'slice-note');
   capacityNote.id = 'rule-capacity-note';
   capacityNote.textContent = currentRules.length >= MAX_VERTICAL_SLICE_RULES
     ? `上限の${MAX_VERTICAL_SLICE_RULES}枚です。削除してから追加できます。`
     : 'カードはタップで選び、上下ボタンで優先順位を変えます。';
+  const homeShare = button('このゲームをシェア', 'slice-button slice-button--quiet');
+  const homeShareStatus = make('p', 'platform-status');
+  homeShareStatus.setAttribute('role', 'status');
+  homeShareStatus.setAttribute('aria-live', 'polite');
+  homeShare.addEventListener('click', async () => {
+    const outcome = await shareOrCopy(homeShareMessage());
+    homeShareStatus.textContent = outcome === 'shared'
+      ? '共有シートを開きました。'
+      : outcome === 'copied'
+        ? 'ゲームのリンクをコピーしました。'
+        : '自動共有できません。下のリンクを選択して共有してください。';
+  });
+  const labLink = make('a', 'platform-link');
+  labLink.href = LAB_URL;
+  labLink.target = '_blank';
+  labLink.rel = 'noopener noreferrer';
+  labLink.textContent = 'カメレオンJPの実験場';
+  const platformActions = make('div', 'platform-actions');
+  platformActions.append(homeShare, labLink, homeShareStatus);
   actions.append(add, undo, start);
   const storagePanel = mountProgramStoragePanel(elements, (program) => {
     mountEditor(elements, cloneRules(program.rules), openBattle, createRuleEditHistory(program.rules));
   });
-  section.append(missionPanel, title, note, capacity, historyNote, storagePanel, list, preflightPanel, capacityNote, actions);
+  section.append(playerNameField, missionPanel, title, note, capacity, historyNote, storagePanel, list, preflightPanel, capacityNote, actions, platformActions);
   elements.content.append(section);
 }
 
@@ -1269,6 +1432,48 @@ function mountAnalysis(
   outcome.textContent = state.outcome.winnerId === null ? '引き分け' : state.outcome.winnerId === PLAYER_ID ? '自機の勝ち' : '敵の勝ち';
   const reason = make('p', 'slice-note');
   reason.textContent = state.outcome.reason === 'destruction' ? '耐久が0になりました。' : state.outcome.reason === 'time-limit' ? '時間切れの比較で決まりました。' : '同じ刻みに両方の耐久が0になりました。';
+  const player = findCombatant(state, PLAYER_ID);
+  const score = player.damageDealt;
+  const scoreElement = make('p', 'analysis-score');
+  scoreElement.textContent = `スコア（与えたダメージ）: ${score}点`;
+  const playerElement = make('p', 'slice-note');
+  playerElement.textContent = `プレイヤー: ${elements.playerName || 'ななし'}`;
+  const shareLabel = make('label', 'result-share-label');
+  shareLabel.textContent = '結果をシェア';
+  const shareText = make('textarea', 'result-share-text');
+  shareText.rows = 4;
+  shareText.readOnly = true;
+  shareText.value = resultShareMessage(state, score);
+  shareLabel.htmlFor = 'robobon-result-share';
+  shareText.id = 'robobon-result-share';
+  const shareStatus = make('p', 'platform-status');
+  shareStatus.setAttribute('role', 'status');
+  shareStatus.setAttribute('aria-live', 'polite');
+  const shareButton = button('結果をシェア／コピー', 'slice-button slice-button--secondary');
+  shareButton.addEventListener('click', async () => {
+    const outcomeResult = await shareOrCopy(shareText.value);
+    shareStatus.textContent = outcomeResult === 'shared'
+      ? '共有シートを開きました。'
+      : outcomeResult === 'copied'
+        ? '結果文をコピーしました。'
+        : '自動共有できません。上の文章を選択してコピーしてください。';
+  });
+  const rankingPanel = make('section', 'online-ranking-panel');
+  rankingPanel.setAttribute('aria-labelledby', 'robobon-ranking-title');
+  const rankingTitle = make('h3');
+  rankingTitle.id = 'robobon-ranking-title';
+  rankingTitle.textContent = '上位10名';
+  const rankingList = make('ol', 'online-ranking-list');
+  const rankingStatus = make('p', 'platform-status');
+  rankingStatus.setAttribute('role', 'status');
+  rankingStatus.setAttribute('aria-live', 'polite');
+  rankingStatus.textContent = 'ランキング送信中…';
+  rankingPanel.append(rankingTitle, rankingList, rankingStatus);
+  const resultLabLink = make('a', 'platform-link');
+  resultLabLink.href = LAB_URL;
+  resultLabLink.target = '_blank';
+  resultLabLink.rel = 'noopener noreferrer';
+  resultLabLink.textContent = 'カメレオンJPの実験場へ';
   const heading = make('h3');
   heading.textContent = '観測できた事実';
   const list = make('ol', 'evidence-list');
@@ -1426,8 +1631,9 @@ function mountAnalysis(
     );
   });
   actions.append(retry, edit);
-  section.append(renderMissionPanel(mission, 'analysis', false), title, outcome, reason, heading, list, assessmentPanel, experimentsPanel, timelinePanel, replayPanel, actions);
+  section.append(renderMissionPanel(mission, 'analysis', false), title, outcome, reason, playerElement, scoreElement, shareLabel, shareText, shareButton, shareStatus, rankingPanel, resultLabLink, heading, list, assessmentPanel, experimentsPanel, timelinePanel, replayPanel, actions);
   elements.content.append(section);
+  void submitAndLoadRanking(elements.playerName, score, rankingStatus, rankingList);
 }
 
 function mountVerticalSlice(root: HTMLElement): void {
@@ -1440,6 +1646,7 @@ function mountVerticalSlice(root: HTMLElement): void {
     storage: createProgramStore(),
     selectedMission: 'dock-approach',
     program: createProgramDocument(DEFAULT_RULES),
+    playerName: loadPlayerName(),
   };
   const startEditor = (rules: RuleCard[]): void => {
     mountEditor(elements, rules, (nextRules) => mountBattle(elements, nextRules, (state, evidence, replayFrames) => mountAnalysis(elements, nextRules, state, evidence, replayFrames)));

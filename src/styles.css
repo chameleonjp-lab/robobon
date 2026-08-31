@@ -861,6 +861,80 @@ h1 {
   line-height: 1.45;
 }
 
+.player-name-field,
+.result-share-label,
+.online-ranking-panel {
+  display: grid;
+  gap: 0.45rem;
+  margin: 1rem 0 0;
+}
+
+.player-name-field span,
+.result-share-label,
+.online-ranking-panel h3 {
+  color: #e7edf3;
+  font-weight: 700;
+}
+
+.player-name-field input,
+.result-share-text {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #456174;
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  color: #edf7fb;
+  background: #0b1118;
+}
+
+.result-share-text {
+  min-height: 7rem;
+  resize: vertical;
+  line-height: 1.5;
+  user-select: text;
+}
+
+.player-name-status,
+.platform-status {
+  margin: 0;
+  color: #9fc4d6;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.platform-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.platform-link {
+  color: #62d4dc;
+  font-weight: 700;
+}
+
+.online-ranking-panel {
+  padding: 0.8rem;
+  border: 1px solid #456174;
+  border-radius: 0.55rem;
+  background: #111f2a;
+}
+
+.online-ranking-panel h3 {
+  margin: 0;
+}
+
+.online-ranking-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding-left: 1.5rem;
+  color: #dce7ee;
+  line-height: 1.45;
+}
+
 @media (min-width: 520px) {
   .spike-shell {
     padding-right: 1.25rem;

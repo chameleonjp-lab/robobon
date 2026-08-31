@@ -23,7 +23,7 @@ const cspMatch = html.match(/<meta\s+http-equiv="Content-Security-Policy"\s+cont
 if (!cspMatch) throw new Error('配信物にContent Security Policyがありません');
 for (const directive of [
   "default-src 'self'",
-  "connect-src 'none'",
+  "connect-src 'self' https://mlpnjgezrnhdxsxolyzj.supabase.co",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",

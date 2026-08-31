@@ -10,8 +10,10 @@ import {
   inspectPreBattleRules,
   MAX_VERTICAL_SLICE_RULES,
   moveRuleCard,
+  normalizeRankingRows,
   parseRuleDurationSeconds,
   scaleBattleElapsed,
+  submissionWasAccepted,
   updateRuleAction,
   updateRuleCondition,
   undoRuleEdit,
@@ -140,5 +142,27 @@ describe('P1-09 vertical slice model', () => {
     expect(warned.issues).toEqual(expect.arrayContaining([
       expect.objectContaining({ severity: 'warning', code: 'no-fallback' }),
     ]));
+  });
+
+  it('normalizes only safe, displayable top-ten ranking rows', () => {
+    const rows = normalizeRankingRows([
+      { rank_no: '1', display_name: ' アオ ', best_score: '42' },
+      { rank_no: 0, display_name: '無効', best_score: 99 },
+      { rank_no: 2, display_name: 'ミナ', best_score: 18 },
+      { rank_no: 3, display_name: '', best_score: 12 },
+    ]);
+
+    expect(rows).toEqual([
+      { rank_no: 1, display_name: 'アオ', best_score: 42 },
+      { rank_no: 2, display_name: 'ミナ', best_score: 18 },
+    ]);
+    expect(normalizeRankingRows({ rank_no: 1 })).toEqual([]);
+  });
+
+  it('recognizes an accepted submit_score RPC response only when explicit', () => {
+    expect(submissionWasAccepted([{ accepted: true }])).toBe(true);
+    expect(submissionWasAccepted([{ accepted: false }])).toBe(false);
+    expect(submissionWasAccepted([])).toBe(false);
+    expect(submissionWasAccepted(null)).toBe(false);
   });
 });

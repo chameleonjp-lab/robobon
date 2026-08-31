@@ -64,6 +64,10 @@ const ENEMY_ID = 2;
 const DEFAULT_BATTLE_SPEED = 1 as const;
 const MAX_PLAYER_NAME_LENGTH = 32;
 const EXPERIMENT_FIELD_URL = 'https://chameleonjp-lab.github.io/chameleonjp_lab/';
+const SUPABASE_URL = 'https://mlpnjgezrnhdxsxolyzj.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_drzcy0v97knU6FgjqSgBHw_0A9XPdFM';
+const GAME_SLUG = 'robobon';
+const CLIENT_VERSION = 'robobon-vertical-slice-2026-08-31';
 
 export type BattleSpeed = 1 | 2;
 
@@ -189,6 +193,39 @@ function button(label: string, className = 'slice-button'): HTMLButtonElement {
   element.type = 'button';
   element.textContent = label;
   return element;
+}
+
+interface RankingRow {
+  readonly rank_no: number;
+  readonly display_name: string;
+  readonly best_score: number;
+}
+
+function normalizeRankingRows(value: unknown): RankingRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    if (candidate === null || typeof candidate !== 'object') return [];
+    const record = candidate as Record<string, unknown>;
+    const rank = Number(record.rank_no);
+    const score = Number(record.best_score);
+    const name = typeof record.display_name === 'string' ? record.display_name.trim() : '';
+    if (!Number.isSafeInteger(rank) || rank < 1 || !Number.isSafeInteger(score) || name.length === 0) return [];
+    return [{
+      rank_no: rank,
+      display_name: name.slice(0, MAX_PLAYER_NAME_LENGTH),
+      best_score: score,
+    }];
+  }).slice(0, 10);
+}
+
+function rankingRowText(row: RankingRow): string {
+  return `${row.rank_no}位　${row.display_name}　${row.best_score}点`;
+}
+
+function submissionWasAccepted(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  const first = value[0];
+  return first !== null && typeof first === 'object' && (first as Record<string, unknown>).accepted === true;
 }
 
 function isValidPlayerName(value: string): boolean {
@@ -667,7 +704,7 @@ function buildResultShareText(
   retired: boolean,
 ): string {
   const player = findCombatant(state, PLAYER_ID);
-  return `ロボボン 任務${mission.number}「${mission.title}」\n${playerName}の結果: ${resultLabel(state, retired)}\n戦闘時間: ${(state.tick / 60).toFixed(1)}秒 / 自機の残り耐久: ${player.health}\n${location.href}`;
+  return `ロボボン 任務${mission.number}「${mission.title}」\n${playerName}の結果: ${resultLabel(state, retired)}\nスコア（自機が与えたダメージ）: ${player.damageDealt}点\n戦闘時間: ${(state.tick / 60).toFixed(1)}秒 / 自機の残り耐久: ${player.health}\n${location.href}`;
 }
 
 async function copyText(text: string): Promise<void> {
@@ -705,6 +742,78 @@ async function shareText(text: string, status: HTMLElement): Promise<void> {
       return;
     }
     status.textContent = '共有できませんでした。もう一度お試しください。';
+  }
+}
+
+async function callRankingRpc<T>(name: string, body: Record<string, unknown>): Promise<T> {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      apikey: SUPABASE_PUBLISHABLE_KEY,
+      Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error('ranking request failed');
+  return data as T;
+}
+
+function renderRankingRows(list: HTMLOListElement, rows: readonly RankingRow[]): void {
+  list.replaceChildren();
+  if (rows.length === 0) {
+    const empty = make('li');
+    empty.textContent = 'まだランキング記録がありません。';
+    list.append(empty);
+    return;
+  }
+  for (const row of rows) {
+    const item = make('li');
+    item.textContent = rankingRowText(row);
+    list.append(item);
+  }
+}
+
+async function submitAndLoadRanking(
+  displayName: string,
+  score: number,
+  status: HTMLElement,
+  list: HTMLOListElement,
+): Promise<void> {
+  let submissionAccepted = false;
+  if (isValidPlayerName(displayName) && Number.isSafeInteger(score) && score >= 0) {
+    status.textContent = 'ランキング送信中…';
+    try {
+      const submission = await callRankingRpc<unknown>('submit_score', {
+        p_display_name: displayName,
+        p_game_slug: GAME_SLUG,
+        p_score: score,
+        p_client_version: CLIENT_VERSION,
+      });
+      submissionAccepted = submissionWasAccepted(submission);
+    } catch {
+      // The ranking list is still useful when score submission is unavailable.
+    }
+  }
+
+  try {
+    const ranking = await callRankingRpc<unknown>('get_best_score_ranking', {
+      p_game_slug: GAME_SLUG,
+      p_limit: 10,
+    });
+    const rows = normalizeRankingRows(ranking);
+    renderRankingRows(list, rows);
+    status.textContent = submissionAccepted
+      ? 'ランキングを更新しました。'
+      : '今回の結果をランキングへ送信できませんでした。結果はこの画面で確認できます。';
+  } catch {
+    status.textContent = submissionAccepted
+      ? '記録は送信しましたが、ランキングを表示できませんでした。'
+      : 'ランキングを表示できませんでした。結果はこの画面で確認できます。';
+    renderRankingRows(list, []);
   }
 }
 
@@ -1911,19 +2020,41 @@ function mountAnalysis(
   const shareTitle = make('h3');
   shareTitle.id = 'result-share-title';
   shareTitle.textContent = '結果を共有する';
+  const shareMessage = buildResultShareText(elements.playerName, mission, state, retired);
+  const shareLabel = make('label', 'result-share-label');
+  shareLabel.htmlFor = 'robobon-result-share-text';
+  shareLabel.textContent = '共有文（必要なら選択してコピーできます）';
+  const shareTextArea = make('textarea', 'result-share-text');
+  shareTextArea.id = shareLabel.htmlFor;
+  shareTextArea.rows = 5;
+  shareTextArea.readOnly = true;
+  shareTextArea.value = shareMessage;
+  shareTextArea.setAttribute('aria-label', '結果の共有文');
   const share = button('結果を共有', 'slice-button slice-button--secondary');
   const shareStatus = make('p', 'share-status');
   shareStatus.setAttribute('role', 'status');
   share.addEventListener('click', () => {
-    void shareText(buildResultShareText(elements.playerName, mission, state, retired), shareStatus);
+    void shareText(shareMessage, shareStatus);
   });
   const lab = makeExperimentFieldLink();
   const labNote = make('p', 'slice-note');
   labNote.textContent = 'もっと試す・作る場所';
-  sharePanel.append(shareTitle, share, labNote, lab, shareStatus);
+  const rankingPanel = make('section', 'online-ranking-panel');
+  rankingPanel.setAttribute('aria-labelledby', 'robobon-ranking-title');
+  const rankingTitle = make('h4');
+  rankingTitle.id = 'robobon-ranking-title';
+  rankingTitle.textContent = '上位10名';
+  const rankingList = make('ol', 'online-ranking-list');
+  const rankingStatus = make('p', 'ranking-status');
+  rankingStatus.setAttribute('role', 'status');
+  rankingStatus.setAttribute('aria-live', 'polite');
+  rankingStatus.textContent = 'ランキングを確認中…';
+  rankingPanel.append(rankingTitle, rankingList, rankingStatus);
+  sharePanel.append(shareTitle, shareLabel, shareTextArea, share, labNote, lab, rankingPanel, shareStatus);
 
   section.append(hero, stats, next, actions, sharePanel, details);
   elements.content.append(section);
+  void submitAndLoadRanking(elements.playerName, player.damageDealt, rankingStatus, rankingList);
   scrollToScreenTop();
 }
 
@@ -1972,10 +2103,12 @@ export {
   isValidPlayerName,
   mountVerticalSlice,
   moveRuleCard,
+  normalizeRankingRows,
   parseRuleDurationSeconds,
   inspectPreBattleRules,
   renderPreBattleCheck,
   scaleBattleElapsed,
+  submissionWasAccepted,
   updateRuleAction,
   updateRuleCondition,
   undoRuleEdit,

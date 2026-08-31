@@ -35,7 +35,8 @@ body.robobon-battle-active #app {
 
 button,
 select,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -1152,13 +1153,68 @@ h4 {
 }
 
 .result-share h3,
-.result-share .share-status {
+.result-share .share-status,
+.result-share-label,
+.result-share-text,
+.online-ranking-panel {
   grid-column: 1 / -1;
+}
+
+.result-share-label {
+  margin: 0;
+  color: #c7dad5;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.result-share-text {
+  width: 100%;
+  min-height: 8rem;
+  padding: 0.65rem;
+  border: 1px solid #58716e;
+  border-radius: 0.55rem;
+  color: #f5fbf8;
+  background: #182a2a;
+  line-height: 1.5;
+  resize: vertical;
+  user-select: text;
 }
 
 .result-share .field-link {
   padding-right: 0;
   padding-left: 0;
+}
+
+.online-ranking-panel {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.8rem;
+  border: 1px solid #3e5f5a;
+  border-radius: 0.65rem;
+  background: #162828;
+}
+
+.online-ranking-panel h4 {
+  margin: 0;
+  color: #f5fbf8;
+  font-size: 0.95rem;
+}
+
+.online-ranking-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding-left: 1.5rem;
+  color: #d3e1dd;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.ranking-status {
+  margin: 0;
+  color: #a9c2bd;
+  font-size: 0.83rem;
+  line-height: 1.5;
 }
 
 .result-details__content {

@@ -104,6 +104,8 @@ export interface RunningAction {
   readonly startedTick: number;
   readonly completesAtTick: number;
   readonly lastTick: number;
+  /** Optional battle-level join key; the generic executor remains compatible. */
+  readonly actionStartId?: number;
 }
 
 export interface ActionDecision {
@@ -191,6 +193,23 @@ function readConditionValue(condition: ConditionId, facts: RuleFacts): boolean {
   }
 }
 
+/**
+ * Evaluates one card without selecting a later card.  Battle simulation uses
+ * this primitive while it walks cards looking for the first card that both
+ * matches its facts and can start right now.  Keeping the condition mapping
+ * here means the screen, the executor, and the rule tests all use the same
+ * negation and conjunction semantics.
+ */
+export function evaluateRuleCard(rule: RuleCard, facts: RuleFacts): RuleEvaluation {
+  validateFacts(facts);
+  const conditions = rule.conditions.map((condition): ConditionEvaluation => {
+    const expected = condition.expected ?? true;
+    const actual = readConditionValue(condition.id, facts);
+    return { id: condition.id, expected, actual, passed: actual === expected };
+  });
+  return { ruleId: rule.id, matched: conditions.every((condition) => condition.passed), conditions };
+}
+
 function validateFacts(facts: RuleFacts): void {
   if (!facts || typeof facts !== 'object') {
     throw new Error('facts must be an object');
@@ -263,14 +282,9 @@ export function selectRule(rules: readonly RuleCard[], facts: RuleFacts): RuleSe
 
   const evaluations: RuleEvaluation[] = [];
   for (const rule of rules) {
-    const conditions = rule.conditions.map((condition): ConditionEvaluation => {
-      const expected = condition.expected ?? true;
-      const actual = readConditionValue(condition.id, facts);
-      return { id: condition.id, expected, actual, passed: actual === expected };
-    });
-    const matched = conditions.every((condition) => condition.passed);
-    evaluations.push({ ruleId: rule.id, matched, conditions });
-    if (matched) {
+    const evaluation = evaluateRuleCard(rule, facts);
+    evaluations.push(evaluation);
+    if (evaluation.matched) {
       return { rule, evaluations, reason: 'matched-first' };
     }
   }

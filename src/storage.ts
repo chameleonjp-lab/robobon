@@ -1,4 +1,5 @@
 import { validateRuleSet, type RuleCard } from './simulation/rules';
+import { CURRENT_SIMULATION_VERSION } from './simulation/version';
 
 export const APP_STORAGE_ID = 'chameleonjp-lab.robobon.v1';
 export const STORAGE_SCHEMA_VERSION = 1;
@@ -193,8 +194,8 @@ function makeProgramId(): string {
 export function createProgramDocument(
   rules: readonly RuleCard[],
   name = '試作作戦',
-  id = 'starter',
-  simulationVersion = 'p1-08',
+  id = `starter-${CURRENT_SIMULATION_VERSION}`,
+  simulationVersion: string = CURRENT_SIMULATION_VERSION,
 ): ProgramDocument {
   const now = new Date().toISOString();
   const program: ProgramDocument = {
@@ -213,6 +214,23 @@ export function createProgramDocument(
 
 export function copyProgram(program: ProgramDocument): ProgramDocument {
   return createProgramDocument(program.rules, `${program.name}のコピー`.slice(0, MAX_PROGRAM_NAME_LENGTH), makeProgramId(), program.simulationVersion);
+}
+
+/** Reading a document never changes the meaning of its rules. */
+export function programCompatibility(program: ProgramDocument): 'current' | 'legacy' | 'unsupported' {
+  if (program.simulationVersion === CURRENT_SIMULATION_VERSION) return 'current';
+  return program.simulationVersion === 'p1-08' ? 'legacy' : 'unsupported';
+}
+
+/** Called only after the player explicitly chooses to make a converted copy. */
+export function convertLegacyProgram(program: ProgramDocument): ProgramDocument {
+  if (programCompatibility(program) !== 'legacy') throw new Error('この作戦の戦闘ルールには変換が対応していません');
+  return createProgramDocument(
+    program.rules,
+    `${program.name}（新ルール）`.slice(0, MAX_PROGRAM_NAME_LENGTH),
+    makeProgramId(),
+    CURRENT_SIMULATION_VERSION,
+  );
 }
 
 export function updateProgramRules(program: ProgramDocument, rules: readonly RuleCard[]): ProgramDocument {

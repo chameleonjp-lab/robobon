@@ -1575,3 +1575,21 @@ h4 {
     animation-duration: 0.01ms !important;
   }
 }
+.program-compatibility:not(:empty) {
+  padding: 1rem;
+  border: 2px solid #ffb84d;
+  border-radius: 12px;
+  background: #252c37;
+  color: #f4f7fa;
+}
+
+.program-compatibility p {
+  margin: 0 0 0.75rem;
+  line-height: 1.7;
+}
+
+.battle-decision-note {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}

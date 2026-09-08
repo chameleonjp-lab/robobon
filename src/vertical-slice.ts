@@ -5,7 +5,7 @@ import type { CombatState, CombatantState } from './simulation/combat';
 import { stepBattle } from './simulation/battle-step';
 import type { BattleState } from './simulation/battle-state';
 import { CURRENT_SIMULATION_VERSION } from './simulation/version';
-import { ARENA, DEFAULT_RULES, PLAYER_ID, ENEMY_ID, createGameSession } from './application/game-session';
+import { DEFAULT_RULES, PLAYER_ID, ENEMY_ID, createGameSession } from './application/game-session';
 import { type RuleCard, validateRuleSet } from './simulation/rules';
 import { drawBattleScene, type BattleQuality, type BattleRenderOptions } from './rendering/battle-renderer';
 import { BattleAudio, soundForEvent } from './audio/battle-audio';
@@ -535,6 +535,8 @@ function renderMissionPanel(
   question.textContent = mission.question;
   const objective = make('p', 'slice-note');
   objective.textContent = `${mission.focus}を見る。${mission.objective}`;
+  const scenario = make('p', 'mission-scenario');
+  scenario.textContent = `戦闘条件: ${mission.battle.scenarioSummary}`;
 
   if (selectable && onChange) {
     const field = make('label', 'mission-select-field');
@@ -557,7 +559,20 @@ function renderMissionPanel(
   const current = make('p', 'mission-now');
   current.innerHTML = '<strong>今すること</strong>';
   current.append(document.createTextNode(` ${missionStage(mission, stageId).instruction}`));
-  panel.append(title, question, objective, current);
+  panel.append(title, question, objective, scenario, current);
+  if (stageId === 'edit') {
+    const paths = make('details', 'mission-improvement-paths');
+    const pathsSummary = make('summary');
+    pathsSummary.textContent = '改善の方向（2通り）';
+    const pathsList = make('ul');
+    for (const path of mission.battle.improvementPaths) {
+      const item = make('li');
+      item.textContent = path;
+      pathsList.append(item);
+    }
+    paths.append(pathsSummary, pathsList);
+    panel.append(paths);
+  }
   return panel;
 }
 
@@ -1367,13 +1382,13 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
 
   const arena = make('div', 'battle-arena');
   const canvas = make('canvas', 'battle-canvas');
-  canvas.width = ARENA.maxX;
-  canvas.height = ARENA.maxY;
+  canvas.width = mission.battle.arena.maxX - mission.battle.arena.minX;
+  canvas.height = mission.battle.arena.maxY - mission.battle.arena.minY;
   canvas.setAttribute('aria-hidden', 'true');
   const context = canvas.getContext('2d');
   if (!context) throw new Error('戦闘Canvasを作成できません');
   const legend = make('p', 'battle-legend');
-  legend.textContent = '丸い印 A1 = 自機　ひし形 E1 = 敵機　光る枠 = 現在の行動';
+  legend.textContent = '丸い印 A1 = 自機　ひし形 E1 = 敵機　黄色の破線 = 障害物　光る枠 = 現在の行動';
   arena.append(canvas, legend);
 
   const activeRule = make('p', 'battle-active-rule');
@@ -1488,7 +1503,7 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
   screen.append(header, nowDoing, arena, activeRule, decisionNote, battleStatus.root, controls, pauseLayer);
   elements.content.append(screen);
 
-  let state = createGameSession(rules, mission.battleTicks);
+  let state = createGameSession(rules, mission.battleTicks, mission.id);
   const replayFrames: ReplayFrame[] = [{ state: compactReplayState(state), ruleId: null }];
   const audio = new BattleAudio();
   const activeRuleId = (): string | null => state.combatants.find((robot) => robot.id === PLAYER_ID)?.runningAction?.ruleId ?? null;
@@ -1854,8 +1869,8 @@ function mountAnalysis(
   replayHeading.textContent = '選択した場面を再生';
   replayPanel.setAttribute('aria-labelledby', replayHeading.id);
   const replayCanvas = make('canvas', 'battle-replay-canvas');
-  replayCanvas.width = ARENA.maxX;
-  replayCanvas.height = ARENA.maxY;
+  replayCanvas.width = mission.battle.arena.maxX - mission.battle.arena.minX;
+  replayCanvas.height = mission.battle.arena.maxY - mission.battle.arena.minY;
   replayCanvas.setAttribute('role', 'img');
   replayCanvas.setAttribute('aria-label', '選択した出来事の3秒前からの戦闘再生');
   const replayContext = replayCanvas.getContext('2d');

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { EFFECT_WINDOWS, battleQualitySettings, robotAngles, isEffectVisible, robotSideForId, robotSilhouette } from './battle-renderer';
+import { EFFECT_WINDOWS, battleQualitySettings, drawBattleScene, robotAngles, isEffectVisible, robotSideForId, robotSilhouette } from './battle-renderer';
+import { DEFAULT_RULES, createGameSession } from '../application/game-session';
 
 describe('P3-15 representative battle renderer contract', () => {
   it('keeps ally and enemy silhouettes distinct and deterministic', () => {
@@ -38,5 +39,37 @@ describe('P3-15 representative battle renderer contract', () => {
     expect(battleQualitySettings('high')).toEqual({ scorchMarkLimit: 24, effects: 'full' });
     expect(battleQualitySettings('medium')).toEqual({ scorchMarkLimit: 12, effects: 'full' });
     expect(battleQualitySettings('low')).toEqual({ scorchMarkLimit: 0, effects: 'reduced' });
+  });
+
+  it('draws mission obstacles from the simulation snapshot', () => {
+    const calls: Array<{ name: string; args: number[] }> = [];
+    const noop = (): void => undefined;
+    const context = {
+      canvas: { width: 640, height: 360 },
+      save: noop,
+      restore: noop,
+      setTransform: noop,
+      fillRect: (...args: number[]) => calls.push({ name: 'fillRect', args }),
+      strokeRect: (...args: number[]) => calls.push({ name: 'strokeRect', args }),
+      beginPath: noop,
+      closePath: noop,
+      moveTo: noop,
+      lineTo: noop,
+      stroke: noop,
+      fill: noop,
+      arc: noop,
+      ellipse: noop,
+      translate: noop,
+      rotate: noop,
+      fillText: noop,
+      setLineDash: noop,
+      createLinearGradient: () => ({ addColorStop: noop }),
+    } as unknown as CanvasRenderingContext2D;
+    const state = createGameSession(DEFAULT_RULES, 120, 'dock-approach');
+
+    drawBattleScene(context, state, null, { quality: 'low', effects: 'reduced' });
+
+    expect(calls).toContainEqual({ name: 'fillRect', args: [300, 250, 56, 78] });
+    expect(calls).toContainEqual({ name: 'strokeRect', args: [301, 251, 54, 76] });
   });
 });

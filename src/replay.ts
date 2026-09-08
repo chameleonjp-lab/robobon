@@ -30,7 +30,9 @@ const MAX_SNAPSHOT_EVENTS = 64;
  */
 export function compactReplayState(state: CombatState): CombatState {
   return {
-    ...state,
+    tick: state.tick,
+    maxTicks: state.maxTicks,
+    nextProjectileId: state.nextProjectileId,
     arena: { ...state.arena },
     combatants: state.combatants.map((combatant) => ({ ...combatant })),
     projectiles: state.projectiles.map((projectile) => ({ ...projectile })),

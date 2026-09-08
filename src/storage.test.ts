@@ -4,10 +4,52 @@ import {
   MAX_PROGRAM_BYTES,
   MemoryProgramStore,
   copyProgram,
+  convertLegacyProgram,
   createProgramDocument,
   parseProgramJson,
+  programCompatibility,
   serializeProgram,
 } from './storage';
+import { CURRENT_SIMULATION_VERSION } from './simulation/version';
+
+describe('R01 simulation compatibility', () => {
+  it('creates new documents without colliding with the original starter slot', () => {
+    const current = createProgramDocument(DEFAULT_RULES);
+    expect(current.simulationVersion).toBe(CURRENT_SIMULATION_VERSION);
+    expect(current.id).not.toBe('starter');
+  });
+
+  it('preserves an old document and its exact conditions during explicit conversion', async () => {
+    const store = new MemoryProgramStore();
+    const original = createProgramDocument([{ id: 'old', priority: 0, conditions: [{ id: 'enemy-visible', expected: false }, { id: 'heat-high' }], action: 'cool', durationTicks: 90 }], '旧作戦', 'starter', 'p1-08');
+    const originalText = serializeProgram(original);
+    await store.save(original);
+    const loaded = parseProgramJson(originalText);
+    expect(loaded.ok && programCompatibility(loaded.program)).toBe('legacy');
+    const converted = convertLegacyProgram(original);
+    await store.save(converted);
+    expect(converted.id).not.toBe(original.id);
+    expect(programCompatibility(converted)).toBe('current');
+    expect(converted.rules).toEqual(original.rules);
+    expect(serializeProgram((await store.get(original.id))!)).toBe(originalText);
+    expect(await store.list()).toHaveLength(2);
+  });
+
+  it('leaves all originals intact when conversion has no free slot', async () => {
+    const store = new MemoryProgramStore();
+    const originals = [0, 1, 2].map((i) => createProgramDocument(DEFAULT_RULES, `旧${i}`, `old-${i}`, 'p1-08'));
+    for (const original of originals) await store.save(original);
+    await expect(store.save(convertLegacyProgram(originals[0]))).rejects.toThrow(/3件/);
+    for (const original of originals) expect(await store.get(original.id)).toEqual(original);
+  });
+
+  it('keeps unknown versions readable but refuses conversion', () => {
+    const future = createProgramDocument(DEFAULT_RULES, '未来版', 'future', 'future-99');
+    expect(parseProgramJson(serializeProgram(future)).ok).toBe(true);
+    expect(programCompatibility(future)).toBe('unsupported');
+    expect(() => convertLegacyProgram(future)).toThrow();
+  });
+});
 
 describe('P2-14 program storage format', () => {
   it('round-trips a bounded program through JSON', () => {

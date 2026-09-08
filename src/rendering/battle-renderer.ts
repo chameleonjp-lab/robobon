@@ -10,10 +10,6 @@ export interface RenderPoint {
   readonly y: number;
 }
 
-export interface DirectionToTarget extends RenderPoint {
-  readonly angle: number;
-}
-
 export type BattleEffectMode = 'full' | 'reduced';
 export type BattleQuality = 'high' | 'medium' | 'low';
 
@@ -90,15 +86,22 @@ export function robotSideForId(id: number): RobotSide {
   return id === 1 ? 'ally' : 'enemy';
 }
 
-/**
- * The combat state intentionally stores no presentation heading. The representative
- * renderer derives a stable direction from the opposing unit, matching the visible
- * intent of the fire command without changing the deterministic simulation state.
- */
+interface RenderCombatant extends CombatantState {
+  readonly heading?: number;
+  readonly turretHeading?: number;
+}
+
+/** Draw simulation headings verbatim; legacy render fixtures use a fixed pose. */
+export function robotAngles(combatant: Pick<RenderCombatant, 'id' | 'heading' | 'turretHeading'>): { body: number; turret: number } {
+  const heading = combatant.heading ?? (combatant.id === 1 ? 0 : 128);
+  return { body: heading * Math.PI / 128, turret: (combatant.turretHeading ?? heading) * Math.PI / 128 };
+}
+
+/** Keeps the position-only helper available to existing render consumers. */
 export function directionToTarget(
   from: Pick<CombatantState, 'id' | 'x' | 'y'>,
   target: Pick<CombatantState, 'id' | 'x' | 'y'>,
-): DirectionToTarget {
+): { x: number; y: number; angle: number } {
   const dx = target.x - from.x;
   const dy = target.y - from.y;
   const length = Math.hypot(dx, dy);
@@ -251,11 +254,10 @@ function drawHeatWarning(context: CanvasRenderingContext2D, combatant: Combatant
 function drawRobot(
   context: CanvasRenderingContext2D,
   combatant: CombatantState,
-  target: CombatantState,
   activeRuleId: string | null,
 ): void {
   const side = robotSideForId(combatant.id);
-  const direction = directionToTarget(combatant, target);
+  const angles = robotAngles(combatant);
   const active = combatant.active;
   const bodyColor = side === 'ally' ? COLORS.ally : COLORS.enemy;
   const accentColor = side === 'ally' ? COLORS.allyLight : COLORS.enemyLight;
@@ -272,7 +274,7 @@ function drawRobot(
   context.fill();
 
   context.translate(combatant.x, combatant.y);
-  context.rotate(direction.angle);
+  context.rotate(angles.body);
 
   // Small legs remain visible below the painted shell and establish the work-machine feel.
   context.strokeStyle = COLORS.mechanicLine;
@@ -301,6 +303,14 @@ function drawRobot(
   context.lineTo(10, 4);
   context.stroke();
 
+  if (side === 'enemy') {
+    context.strokeStyle = COLORS.enemyLight;
+    context.setLineDash([3, 3]);
+    context.strokeRect(-12, -8, 10, 11);
+    context.setLineDash([]);
+  }
+  // The turret has its own finite simulation heading, independent of the body.
+  context.rotate(angles.turret - angles.body);
   context.fillStyle = COLORS.mechanic;
   context.beginPath();
   context.arc(0, 0, 8, 0, Math.PI * 2);
@@ -309,7 +319,7 @@ function drawRobot(
   context.lineWidth = 2;
   context.stroke();
 
-  // The barrel points along the same stable target direction as the body.
+  // The barrel follows the same heading used by the weapon's final aim check.
   context.fillStyle = COLORS.mechanic;
   context.fillRect(5, -3, 25, 6);
   context.strokeStyle = accentColor;
@@ -319,12 +329,6 @@ function drawRobot(
   context.lineTo(28, -2);
   context.stroke();
 
-  if (side === 'enemy') {
-    context.strokeStyle = COLORS.enemyLight;
-    context.setLineDash([3, 3]);
-    context.strokeRect(-12, -8, 10, 11);
-    context.setLineDash([]);
-  }
   context.restore();
 
   context.save();
@@ -398,15 +402,14 @@ function drawScorchMarks(context: CanvasRenderingContext2D, state: CombatState, 
 function drawMuzzleFlash(
   context: CanvasRenderingContext2D,
   combatant: CombatantState,
-  target: CombatantState,
   age: number,
 ): void {
-  const direction = directionToTarget(combatant, target);
+  const angles = robotAngles(combatant);
   const side = robotSideForId(combatant.id);
   const color = side === 'ally' ? COLORS.allyLight : COLORS.enemyLight;
   context.save();
   context.translate(combatant.x, combatant.y);
-  context.rotate(direction.angle);
+  context.rotate(angles.turret);
   context.globalAlpha = 1 - age / (EFFECT_WINDOWS.muzzleFlash + 1);
   context.fillStyle = color;
   context.beginPath();
@@ -471,8 +474,7 @@ function drawBattleEffects(
     const age = state.tick - event.tick;
     if (event.type === 'PROJECTILE_FIRED' && isEffectVisible(state.tick, event.tick, EFFECT_WINDOWS.muzzleFlash)) {
       const source = combatantById(state, event.sourceId);
-      const target = state.combatants.find((combatant) => combatant.id !== event.sourceId);
-      if (source && target) drawMuzzleFlash(context, source, target, age);
+      if (source) drawMuzzleFlash(context, source, age);
     }
     if (event.type === 'HIT_CONFIRMED' && isEffectVisible(state.tick, event.tick, EFFECT_WINDOWS.impact)) {
       const target = combatantById(state, event.targetId);
@@ -512,8 +514,8 @@ export function drawBattleScene(
   context.setTransform(scale.x, 0, 0, scale.y, -state.arena.minX * scale.x, -state.arena.minY * scale.y);
   drawArena(context);
   drawScorchMarks(context, state, qualitySettings.scorchMarkLimit);
-  drawRobot(context, first, second, activeRuleId);
-  drawRobot(context, second, first, activeRuleId);
+  drawRobot(context, first, activeRuleId);
+  drawRobot(context, second, activeRuleId);
   for (const projectile of state.projectiles) drawProjectile(context, projectile);
   drawBattleEffects(context, state, effectMode);
   context.restore();

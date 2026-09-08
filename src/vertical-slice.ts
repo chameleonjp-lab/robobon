@@ -1,15 +1,12 @@
+import { ACTION_LABELS, CONDITION_LABELS, ruleConditionText } from './rule-labels';
+import { battleActionText, battleDecisionText } from './battle-explanation';
 import { FixedStepClock } from './simulation/clock';
-import {
-  createCombatState,
-  stepCombat,
-  type CombatCommand,
-  type CombatState,
-  type CombatantState,
-  type WeaponSpec,
-} from './simulation/combat';
-import { headingToPoint } from './simulation/sensor';
-import { selectRule, type RuleCard, type RuleFacts, type RuleSelection, validateRuleSet } from './simulation/rules';
-import { squaredDistance } from './simulation/geometry';
+import type { CombatState, CombatantState } from './simulation/combat';
+import { stepBattle } from './simulation/battle-step';
+import type { BattleState } from './simulation/battle-state';
+import { CURRENT_SIMULATION_VERSION } from './simulation/version';
+import { ARENA, DEFAULT_RULES, PLAYER_ID, ENEMY_ID, createGameSession } from './application/game-session';
+import { type RuleCard, validateRuleSet } from './simulation/rules';
 import { drawBattleScene, type BattleQuality, type BattleRenderOptions } from './rendering/battle-renderer';
 import { BattleAudio, soundForEvent } from './audio/battle-audio';
 import { battleEventText, formatBattleStatus, formatCombatantMetric } from './battle-status';
@@ -30,10 +27,12 @@ import {
   MAX_PROGRAM_BYTES,
   MAX_PROGRAM_NAME_LENGTH,
   MAX_PROGRAM_SLOTS,
+  convertLegacyProgram,
   copyProgram,
   createProgramDocument,
   createProgramStore,
   parseProgramJson,
+  programCompatibility,
   serializeProgram,
   updateProgramRules,
   type ProgramDocument,
@@ -50,24 +49,19 @@ import {
 
 type SlicePhase = 'home' | 'edit' | 'battle' | 'analysis';
 
-const ARENA = { minX: 0, maxX: 640, minY: 0, maxY: 360 } as const;
-const RULE_EVALUATION_TICKS = 6;
-const MAX_BATTLE_TICKS = 20 * 60;
 const MAX_VERTICAL_SLICE_RULES = 8;
 const MAX_RULE_UNDO_STEPS = 20;
 const MIN_DURATION_TICKS = 6;
 const MAX_DURATION_TICKS = 60 * 10;
 /** One frame per simulation tick for the 20-second vertical slice. */
 const MAX_REPLAY_FRAMES = 1_201;
-const PLAYER_ID = 1;
-const ENEMY_ID = 2;
 const DEFAULT_BATTLE_SPEED = 1 as const;
 const MAX_PLAYER_NAME_LENGTH = 32;
 const EXPERIMENT_FIELD_URL = 'https://chameleonjp-lab.github.io/chameleonjp_lab/';
 const SUPABASE_URL = 'https://mlpnjgezrnhdxsxolyzj.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_drzcy0v97knU6FgjqSgBHw_0A9XPdFM';
 const GAME_SLUG = 'robobon';
-const CLIENT_VERSION = 'robobon-vertical-slice-2026-08-31';
+const CLIENT_VERSION = `robobon-${CURRENT_SIMULATION_VERSION}`;
 
 export type BattleSpeed = 1 | 2;
 
@@ -77,55 +71,10 @@ function scaleBattleElapsed(elapsedMs: number, speed: BattleSpeed): number {
   return Math.min(100, elapsedMs) * speed;
 }
 
-const PLAYER_WEAPON: WeaponSpec = {
-  id: 'pulse',
-  ammoCost: 1,
-  damage: 12,
-  heat: 8,
-  cooldownTicks: 30,
-  projectileSpeed: 8,
-  projectileRadius: 4,
-  lifetimeTicks: 120,
-};
-
-const ENEMY_WEAPON: WeaponSpec = {
-  ...PLAYER_WEAPON,
-  id: 'enemy-pulse',
-  damage: 15,
-};
-
-const CONDITION_LABELS: Record<string, string> = {
-  always: '常に',
-  'enemy-visible': '敵を確認したら',
-  'enemy-near': '敵が近ければ',
-  'enemy-in-range': '敵が射程内なら',
-  'projectile-warning': '弾が来たら',
-  'ammo-available': '弾が残っていれば',
-  'heat-high': '熱が高ければ',
-  'boundary-danger': '壁が近ければ',
-  'line-of-sight': '射線が通れば',
-};
-
-const ACTION_LABELS: Record<string, string> = {
-  'face-target': '敵へ向く',
-  'fire-pulse': 'パルス砲を撃つ',
-  retreat: '後退する',
-  strafe: '横へ避ける',
-  cool: '冷却する',
-  explore: '探索する',
-  stop: '停止する',
-};
-
-const DEFAULT_RULES: readonly RuleCard[] = [
-  { id: 'rule-cool', priority: 0, conditions: [{ id: 'heat-high' }], action: 'cool' },
-  { id: 'rule-fire', priority: 1, conditions: [{ id: 'enemy-in-range' }], action: 'fire-pulse' },
-  { id: 'rule-fallback', priority: 2, conditions: [], action: 'explore' },
-];
-
 type Evidence = AnalysisEvidence;
 
 type OpenAnalysis = (
-  state: CombatState,
+  state: BattleState,
   evidence: readonly Evidence[],
   replayFrames: readonly ReplayFrame[],
   retired?: boolean,
@@ -300,6 +249,7 @@ function moveRuleCard(rules: readonly RuleCard[], index: number, direction: -1 |
 
 function updateRuleCondition(rules: readonly RuleCard[], index: number, value: string): RuleCard[] | null {
   if (!Number.isInteger(index) || index < 0 || index >= rules.length) return null;
+  if (rules[index].conditions.length > 1 || rules[index].conditions.some((item) => item.expected === false)) return null;
   if (value !== 'always' && !Object.hasOwn(CONDITION_LABELS, value)) return null;
   const next = cloneRules(rules);
   next[index] = {
@@ -405,31 +355,6 @@ function addRuleCard(rules: readonly RuleCard[]): RuleCard[] {
   if (next.length >= MAX_VERTICAL_SLICE_RULES) return next;
   next.push({ id: nextRuleId(next), priority: next.length, conditions: [], action: 'stop' });
   return next;
-}
-
-function makeCombatant(id: number, x: number): CombatantState {
-  return {
-    id,
-    x,
-    y: 180,
-    radius: 16,
-    maxHealth: 100,
-    health: 100,
-    heat: 0,
-    ammo: 6,
-    fireCooldownRemaining: 0,
-    overheatRemaining: 0,
-    damageDealt: 0,
-    active: true,
-  };
-}
-
-function initialCombatState(maxTicks = MAX_BATTLE_TICKS): CombatState {
-  return createCombatState({
-    arena: ARENA,
-    maxTicks,
-    combatants: [makeCombatant(PLAYER_ID, 190), makeCombatant(ENEMY_ID, 430)],
-  });
 }
 
 function findCombatant(state: CombatState, id: number): CombatantState {
@@ -541,49 +466,6 @@ function updateBattleEventLog(panel: BattleStatusElements, state: CombatState): 
     panel.eventLog.append(item);
   }
   return visibleMessages.at(-1) ?? null;
-}
-
-/** Converts the current combat state into the small, visible rule vocabulary. */
-function factsFromCombat(state: CombatState): RuleFacts {
-  const player = findCombatant(state, PLAYER_ID);
-  const enemy = findCombatant(state, ENEMY_ID);
-  const distanceSquared = squaredDistance(player, enemy);
-  const enemyNear = distanceSquared <= 120n * 120n;
-  const enemyInRange = distanceSquared <= 250n * 250n;
-  const projectileWarning = state.projectiles.some(
-    (projectile) => projectile.ownerId === ENEMY_ID && squaredDistance(projectile, player) <= 90n * 90n,
-  );
-  return {
-    tick: state.tick,
-    enemyVisible: player.active && enemy.active && distanceSquared <= 360n * 360n,
-    enemyNear,
-    enemyInRange,
-    projectileWarning,
-    ammoAvailable: player.ammo > 0,
-    heatHigh: player.heat >= 70,
-    boundaryDanger: player.x < 50 || player.x > 590 || player.y < 50 || player.y > 310,
-    lineOfSight: true,
-  };
-}
-
-function commandForSelection(selection: RuleSelection, state: CombatState): CombatCommand | null {
-  const rule = selection.rule;
-  if (!rule) return null;
-  const player = findCombatant(state, PLAYER_ID);
-  const enemy = findCombatant(state, ENEMY_ID);
-  if (rule.action === 'fire-pulse') {
-    return { kind: 'fire', ownerId: PLAYER_ID, heading: headingToPoint({ ...player, heading: 0 }, enemy), weapon: PLAYER_WEAPON };
-  }
-  if (rule.action === 'cool') return { kind: 'cool', ownerId: PLAYER_ID, amount: 25 };
-  return null;
-}
-
-function enemyCommand(state: CombatState): CombatCommand | null {
-  if (state.tick % 45 !== 0) return null;
-  const enemy = findCombatant(state, ENEMY_ID);
-  const player = findCombatant(state, PLAYER_ID);
-  if (!enemy.active || !player.active) return null;
-  return { kind: 'fire', ownerId: ENEMY_ID, heading: headingToPoint({ ...enemy, heading: 128 }, player), weapon: ENEMY_WEAPON };
 }
 
 function drawBattle(
@@ -958,7 +840,7 @@ function mountHome(elements: SliceElements): void {
       nameInput.focus();
       return;
     }
-    openEditorScreen(elements, DEFAULT_RULES);
+    openEditorScreen(elements, elements.program.rules);
   });
   form.append(nameField, start, nameStatus);
   startSection.append(startTitle, form);
@@ -985,6 +867,10 @@ function setStorageStatus(elements: SliceElements, message: string): void {
 }
 
 async function saveCurrentProgram(elements: SliceElements): Promise<boolean> {
+  if (programCompatibility(elements.program) !== 'current') {
+    setStorageStatus(elements, 'この作戦は閲覧用です。新しいルール用の複製を作ってから編集してください。');
+    return false;
+  }
   try {
     await elements.storage.save(elements.program);
     const count = (await elements.storage.list()).length;
@@ -997,6 +883,7 @@ async function saveCurrentProgram(elements: SliceElements): Promise<boolean> {
 }
 
 function scheduleProgramSave(elements: SliceElements): void {
+  if (programCompatibility(elements.program) !== 'current') return;
   if (elements.saveTimer !== undefined) window.clearTimeout(elements.saveTimer);
   elements.saveTimer = window.setTimeout(() => {
     elements.saveTimer = undefined;
@@ -1058,6 +945,7 @@ function mountProgramStoragePanel(
   nameInput.type = 'text';
   nameInput.maxLength = MAX_PROGRAM_NAME_LENGTH;
   nameInput.value = elements.program.name;
+  nameInput.disabled = programCompatibility(elements.program) !== 'current';
   nameInput.setAttribute('aria-label', '作戦名');
   nameInput.addEventListener('change', () => {
     const name = nameInput.value.trim();
@@ -1080,8 +968,10 @@ function mountProgramStoragePanel(
 
   const actions = make('div', 'slice-actions storage-actions');
   const save = button('端末へ保存', 'slice-button slice-button--secondary');
+  save.disabled = programCompatibility(elements.program) !== 'current';
   save.addEventListener('click', () => { void saveCurrentProgram(elements); });
   const duplicate = button('複製して編集', 'slice-button slice-button--secondary');
+  duplicate.disabled = programCompatibility(elements.program) !== 'current';
   duplicate.addEventListener('click', () => {
     const copied = copyProgram(elements.program);
     void elements.storage.save(copied).then(() => {
@@ -1143,10 +1033,12 @@ function mountProgramStoragePanel(
       }
       return flushPendingProgramSave(elements).then((saved) => {
         if (!saved) return;
-        return elements.storage.save(parsed.program).then(() => {
-          elements.program = parsed.program;
-          setStorageStatus(elements, parsed.migrated ? '旧形式を検査して新形式へ移行し、保存しました。' : 'JSONを検査して保存しました。');
-          openEditor(parsed.program);
+        // An imported ID must never overwrite another saved original.
+        const imported = { ...copyProgram(parsed.program), name: parsed.program.name };
+        return elements.storage.save(imported).then(() => {
+          elements.program = imported;
+          setStorageStatus(elements, 'JSONを検査して別の作戦として保存しました。戦闘ルールの版は保持しています。');
+          openEditor(imported);
         });
       });
     }).catch((error: unknown) => {
@@ -1197,8 +1089,14 @@ function mountEditor(
 
   const currentRules = cloneRules(history.rules);
   const mission = missionById(elements.selectedMission);
-  elements.program = updateProgramRules(elements.program, currentRules);
-  const preflight = inspectPreBattleRules(currentRules);
+  const compatibility = programCompatibility(elements.program);
+  const editable = compatibility === 'current';
+  if (editable) elements.program = updateProgramRules(elements.program, currentRules);
+  const checkedRules = inspectPreBattleRules(currentRules);
+  const preflight: PreBattleCheck = editable ? checkedRules : {
+    canStart: false,
+    issues: [{ severity: 'error', code: 'simulation-version', message: 'この作戦の戦闘ルールには対応していません。元を残した複製、または書き出しを選べます。' }],
+  };
 
   const section = make('section', 'screen editor-screen');
   section.setAttribute('aria-labelledby', 'slice-editor-title');
@@ -1207,7 +1105,7 @@ function mountEditor(
   title.id = 'slice-editor-title';
   title.textContent = '命令カード';
   const note = make('p', 'slice-note');
-  note.textContent = `上から順に条件を確認し、最初に当てはまる行動を実行します。まずは1枚だけ変えて結果を比べます。`;
+  note.textContent = '上から条件を確認し、条件が合い、今開始できる行動を実行します。実行中は継続時間を守り、上位の開始できるカードだけが中断できます。';
   const capacity = make('p', 'slice-capacity');
   capacity.setAttribute('aria-live', 'polite');
   capacity.textContent = `規則 ${currentRules.length} / ${MAX_VERTICAL_SLICE_RULES}`;
@@ -1222,6 +1120,7 @@ function mountEditor(
     : `${elements.selectedRuleIndex + 1}枚目を選択中です。`;
 
   const renderEdit = (nextRules: readonly RuleCard[]): void => {
+    if (!editable) return;
     const nextHistory = commitRuleEdit(history, nextRules);
     elements.program = updateProgramRules(elements.program, nextHistory.rules);
     scheduleProgramSave(elements);
@@ -1248,7 +1147,7 @@ function mountEditor(
 
     const summary = make('p', 'rule-card__summary');
     summary.id = cardDescriptionId;
-    summary.textContent = `${CONDITION_LABELS[rule.conditions[0]?.id ?? 'always']} → ${ACTION_LABELS[rule.action]}`;
+    summary.textContent = `${ruleConditionText(rule)} → ${ACTION_LABELS[rule.action]}`;
 
     const controls = make('div', 'rule-card__controls');
     const conditionField = make('label', 'rule-field');
@@ -1258,6 +1157,16 @@ function mountEditor(
     condition.setAttribute('aria-label', `${index + 1}枚目の条件`);
     optionList(condition, Object.keys(CONDITION_LABELS), CONDITION_LABELS);
     condition.value = rule.conditions[0]?.id ?? 'always';
+    const preservedConditions = rule.conditions.length > 1 || rule.conditions.some((item) => item.expected === false);
+    if (preservedConditions) {
+      const preserved = make('option');
+      preserved.value = 'preserved';
+      preserved.textContent = ruleConditionText(rule);
+      condition.append(preserved);
+      condition.value = preserved.value;
+      conditionField.title = '読み込んだ「かつ・否定」の条件を保持しています。この画面では条件を変更できません。';
+    }
+    condition.disabled = !editable || preservedConditions;
     condition.addEventListener('change', () => {
       elements.selectedRuleIndex = index;
       const next = updateRuleCondition(currentRules, index, condition.value);
@@ -1272,6 +1181,7 @@ function mountEditor(
     action.setAttribute('aria-label', `${index + 1}枚目の行動`);
     optionList(action, Object.keys(ACTION_LABELS), ACTION_LABELS);
     action.value = rule.action;
+    action.disabled = !editable;
     action.addEventListener('change', () => {
       elements.selectedRuleIndex = index;
       const next = updateRuleAction(currentRules, index, action.value);
@@ -1294,8 +1204,9 @@ function mountEditor(
     duration.step = '0.1';
     duration.placeholder = '標準';
     duration.value = durationSecondsLabel(rule.durationTicks);
+    duration.disabled = !editable;
     const durationHelp = make('span', 'rule-input-help');
-    durationHelp.textContent = '空欄は行動ごとの標準時間';
+    durationHelp.textContent = '空欄は標準時間。射撃・冷却は開始時に1回だけ使います。';
     const durationError = make('span', 'rule-input-error');
     durationError.id = `rule-duration-error-${rule.id}`;
     duration.setAttribute('aria-label', `${index + 1}枚目の継続時間（秒）`);
@@ -1320,21 +1231,23 @@ function mountEditor(
       renderEdit(next);
     });
 
+    durationField.append(durationCaption, duration, durationHelp, durationError);
+
     const reorder = make('div', 'rule-card__buttons');
     const up = button('上へ', 'slice-button slice-button--small');
-    up.disabled = index === 0;
+    up.disabled = !editable || index === 0;
     up.addEventListener('click', () => {
       elements.selectedRuleIndex = Math.max(0, index - 1);
       renderEdit(moveRuleCard(currentRules, index, -1));
     });
     const down = button('下へ', 'slice-button slice-button--small');
-    down.disabled = index === currentRules.length - 1;
+    down.disabled = !editable || index === currentRules.length - 1;
     down.addEventListener('click', () => {
       elements.selectedRuleIndex = Math.min(currentRules.length - 1, index + 1);
       renderEdit(moveRuleCard(currentRules, index, 1));
     });
     const remove = button('削除', 'slice-button slice-button--small slice-button--quiet');
-    remove.disabled = currentRules.length <= 1;
+    remove.disabled = !editable || currentRules.length <= 1;
     remove.addEventListener('click', () => {
       const next = currentRules.filter((_, itemIndex) => itemIndex !== index);
       elements.selectedRuleIndex = next.length === 0 ? null : Math.min(index, next.length - 1);
@@ -1361,19 +1274,21 @@ function mountEditor(
 
   const actions = make('div', 'slice-actions');
   const add = button('規則を追加', 'slice-button slice-button--secondary');
-  add.disabled = currentRules.length >= MAX_VERTICAL_SLICE_RULES;
+  add.disabled = !editable || currentRules.length >= MAX_VERTICAL_SLICE_RULES;
   add.setAttribute('aria-describedby', 'rule-capacity-note');
   add.addEventListener('click', () => renderEdit(addRuleCard(currentRules)));
   const undo = button('元に戻す', 'slice-button slice-button--quiet');
-  undo.disabled = history.undo.length === 0;
+  undo.disabled = !editable || history.undo.length === 0;
   undo.setAttribute('aria-label', '直前の作戦編集を元に戻す');
   undo.addEventListener('click', () => {
     const previous = undoRuleEdit(history);
+    elements.program = updateProgramRules(elements.program, previous.rules);
+    scheduleProgramSave(elements);
     mountEditor(elements, cloneRules(previous.rules), openBattle, previous);
   });
   const start = button('この作戦で開始', 'slice-button slice-button--primary');
   start.textContent = '出撃する';
-  start.disabled = !preflight.canStart || !isValidPlayerName(elements.playerName);
+  start.disabled = !editable || !preflight.canStart || !isValidPlayerName(elements.playerName);
   start.setAttribute('aria-describedby', 'preflight-title');
   start.addEventListener('click', () => openBattle(cloneRules(currentRules)));
   const capacityNote = make('p', 'slice-note');
@@ -1389,7 +1304,33 @@ function mountEditor(
     mountEditor(elements, cloneRules(program.rules), openBattle, createRuleEditHistory(program.rules));
   });
   storageDetails.append(storageSummary, storagePanel);
-  section.append(missionPanel, title, note, capacity, historyNote, selectedRuleStatus, list, preflightPanel, capacityNote, actions, storageDetails);
+  const compatibilityPanel = make('section', 'program-compatibility');
+  compatibilityPanel.setAttribute('role', 'status');
+  if (!editable) {
+    const message = make('p');
+    message.textContent = compatibility === 'legacy'
+      ? '以前の戦闘ルールで保存された作戦です。元の作戦を残し、新しいルール用に複製できます。新しいルールでは、開始できない行動を飛ばし、移動と継続時間が働きます。戦闘結果も変わります。'
+      : 'この戦闘ルールの版には対応していません。作戦は閲覧と書き出しができます。出撃と編集は停止しています。';
+    compatibilityPanel.append(message);
+    if (compatibility === 'legacy') {
+      const convert = button('元を残して新ルール用に複製', 'slice-button slice-button--secondary');
+      convert.addEventListener('click', () => {
+        convert.disabled = true;
+        const converted = convertLegacyProgram(elements.program);
+        void elements.storage.save(converted).then(() => {
+          elements.program = converted;
+          setStorageStatus(elements, '元の作戦を残して、新しいルール用の複製を保存しました。');
+          mountEditor(elements, cloneRules(converted.rules), openBattle);
+        }).catch((error: unknown) => {
+          convert.disabled = false;
+          setStorageStatus(elements, `複製できません: ${storageError(error)} 元の作戦は変更していません。`);
+          message.textContent = `複製できません: ${storageError(error)} 元の作戦は変更していません。保存枠を整理してから、もう一度お試しください。`;
+        });
+      });
+      compatibilityPanel.append(convert);
+    }
+  }
+  section.append(missionPanel, title, note, compatibilityPanel, capacity, historyNote, selectedRuleStatus, list, preflightPanel, capacityNote, actions, storageDetails);
   elements.content.append(section);
 }
 
@@ -1436,6 +1377,8 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
   arena.append(canvas, legend);
 
   const activeRule = make('p', 'battle-active-rule');
+  const decisionNote = make('p', 'battle-decision-note');
+  decisionNote.textContent = 'これからカードを確認します。';
   activeRule.setAttribute('role', 'status');
   activeRule.setAttribute('aria-live', 'polite');
   activeRule.setAttribute('aria-atomic', 'true');
@@ -1542,13 +1485,13 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
   pauseDialog.append(pauseTitle, pauseNote, pauseMenu, helpPanel, retirePanel, settings);
   pauseLayer.append(pauseDialog);
 
-  screen.append(header, nowDoing, arena, activeRule, battleStatus.root, controls, pauseLayer);
+  screen.append(header, nowDoing, arena, activeRule, decisionNote, battleStatus.root, controls, pauseLayer);
   elements.content.append(screen);
 
-  let state = initialCombatState(mission.battleTicks);
+  let state = createGameSession(rules, mission.battleTicks);
   const replayFrames: ReplayFrame[] = [{ state: compactReplayState(state), ruleId: null }];
   const audio = new BattleAudio();
-  let selection: RuleSelection | null = null;
+  const activeRuleId = (): string | null => state.combatants.find((robot) => robot.id === PLAYER_ID)?.runningAction?.ruleId ?? null;
   let evidence: Evidence[] = [];
   let paused = false;
   let pausedByBackground = false;
@@ -1636,15 +1579,17 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
   updateBattleStatus(battleStatus, state);
   updateBattleEventLog(battleStatus, state);
 
-  const recordEvents = (before: CombatState, after: CombatState): void => {
+  const recordEvents = (before: BattleState, after: BattleState): void => {
     const newEvents = after.events.slice(before.events.length);
     for (const event of newEvents) {
       const soundType = soundForEvent(event.type);
       if (soundType) audio.play(soundType);
     }
+    const fireStart = after.actionEvents.slice(before.actionEvents.length).find((event) =>
+      event.actorId === PLAYER_ID && event.type === 'action-start' && event.action === 'fire-pulse');
     evidence.push(...collectAnalysisEvidence(
       newEvents,
-      selection?.rule?.id ?? null,
+      fireStart?.ruleId ?? null,
       Math.max(0, 3 - evidence.length),
     ));
     if (newEvents.length > 0) {
@@ -1689,34 +1634,21 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
 
   const simulate = (): void => {
     const before = state;
-    if (state.tick % RULE_EVALUATION_TICKS === 0 || selection === null) {
-      selection = selectRule(rules, factsFromCombat(state));
-      const nextRuleText = selection.rule
-        ? `実行中: ${selection.rule.priority + 1}枚目「${ACTION_LABELS[selection.rule.action]}」`
-        : '実行中: 該当する規則なし';
-      if (activeRule.textContent !== nextRuleText) activeRule.textContent = nextRuleText;
-      if (selection.rule) {
-        const actionInstruction: Record<string, string> = {
-          'face-target': '敵の方向へ向く動きを確認します。',
-          'fire-pulse': '敵の耐久が下がるか、弾数が減るかを確認します。',
-          retreat: '自機が敵から離れる動きを確認します。',
-          strafe: '自機が横へ避ける動きを確認します。',
-          cool: '自機の熱が下がるかを確認します。',
-          explore: '自機が探索する動きを確認します。',
-          stop: '自機が停止し、次の条件を待つことを確認します。',
-        };
-        nowText.textContent = `${selection.rule.priority + 1}枚目「${ACTION_LABELS[selection.rule.action]}」が選ばれました。${actionInstruction[selection.rule.action]}`;
-      } else {
-        nowText.textContent = '当てはまるカードがありません。実行中の変化と数値を確認します。';
-      }
+    if (state.outcome.status === 'finished') return;
+    state = stepBattle(state);
+    const decisionText = battleDecisionText(state, PLAYER_ID);
+    if (decisionNote.textContent !== decisionText) decisionNote.textContent = decisionText;
+    const running = state.combatants.find((robot) => robot.id === PLAYER_ID)?.runningAction;
+    const nextRuleText = running
+      ? `実行中: ${running.priority + 1}枚目「${ACTION_LABELS[running.action]}」`
+      : '実行中: 次の判断を待っています';
+    if (activeRule.textContent !== nextRuleText) {
+      activeRule.textContent = nextRuleText;
+      nowText.textContent = running
+        ? `${running.priority + 1}枚目「${ACTION_LABELS[running.action]}」を実行しています。動きと数値の変化を確認します。`
+        : '行動が完了しました。次に開始できるカードを確認します。';
     }
-    const commands: CombatCommand[] = [];
-    const playerCommand = selection ? commandForSelection(selection, state) : null;
-    if (playerCommand) commands.push(playerCommand);
-    const enemy = enemyCommand(state);
-    if (enemy) commands.push(enemy);
-    state = stepCombat(state, commands);
-    replayFrames.push({ state: compactReplayState(state), ruleId: selection?.rule?.id ?? null });
+    replayFrames.push({ state: compactReplayState(state), ruleId: activeRuleId() });
     if (replayFrames.length > MAX_REPLAY_FRAMES) replayFrames.shift();
     recordEvents(before, state);
     updateBattleStatus(battleStatus, state);
@@ -1733,7 +1665,7 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
     const elapsed = Math.max(0, now - previousTime);
     previousTime = now;
     clock.advance(scaleBattleElapsed(elapsed, readSpeed()), simulate);
-    drawBattle(context, state, selection?.rule?.id ?? null, renderOptions());
+    drawBattle(context, state, activeRuleId(), renderOptions());
     if (state.outcome.status === 'running') animationFrame = requestAnimationFrame(frame);
   };
 
@@ -1748,11 +1680,11 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
   });
   quality.addEventListener('change', () => {
     if (!paused) return;
-    drawBattle(context, state, selection?.rule?.id ?? null, renderOptions());
+    drawBattle(context, state, activeRuleId(), renderOptions());
     battleStatus.announcement.textContent = `画質を${quality.value === 'low' ? '低' : quality.value === 'medium' ? '中' : '高'}に変更しました。勝敗と重要情報は変わりません。`;
   });
   reducedMotion.addEventListener('change', () => {
-    drawBattle(context, state, selection?.rule?.id ?? null, renderOptions());
+    drawBattle(context, state, activeRuleId(), renderOptions());
     battleStatus.announcement.textContent = reducedMotion.checked ? '演出を減らしました。重要な表示は残ります。' : '演出を標準へ戻しました。';
   });
 
@@ -1797,7 +1729,7 @@ function mountBattle(elements: SliceElements, rules: RuleCard[], openAnalysis: O
 function mountAnalysis(
   elements: SliceElements,
   rules: RuleCard[],
-  state: CombatState,
+  state: BattleState,
   evidence: readonly Evidence[],
   replayFrames: readonly ReplayFrame[],
   retired = false,
@@ -1990,11 +1922,29 @@ function mountAnalysis(
   }
   timelinePanel.append(timelineHeading, timelineNote, timelineList);
 
+  const actionPanel = make('section', 'analysis-actions');
+  const actionHeading = make('h3');
+  actionHeading.textContent = 'カードの実行記録';
+  const actionNote = make('p', 'slice-note');
+  actionNote.textContent = '開始前の見送りと、開始後の失敗を分けて記録しています。直近40件を選ぶとその場面を見返せます。';
+  const actionList = make('ol', 'battle-timeline');
+  for (const event of state.actionEvents.filter((item) => item.actorId === PLAYER_ID && item.type !== 'action-continue').slice(-40)) {
+    const item = make('li', 'battle-timeline__entry');
+    const replayButton = button(`${(event.tick / 60).toFixed(1)}秒 ${battleActionText(event, state)}`, 'battle-timeline__button');
+    replayButton.dataset.ruleId = event.ruleId ?? '';
+    replayButton.dataset.actionStartId = event.actionStartId === undefined ? '' : String(event.actionStartId);
+    replayButton.disabled = selectReplayWindow(replayFrames, event.tick) === null;
+    replayButton.addEventListener('click', () => playReplay(event.tick));
+    item.append(replayButton);
+    actionList.append(item);
+  }
+  actionPanel.append(actionHeading, actionNote, actionList);
+
   const details = make('details', 'result-details');
   const detailsSummary = make('summary');
   detailsSummary.textContent = '詳しく見る：観測事実と時間線';
   const detailContent = make('div', 'result-details__content');
-  detailContent.append(reason, heading, list, assessmentPanel, experimentsPanel, timelinePanel, replayPanel);
+  detailContent.append(reason, heading, list, assessmentPanel, experimentsPanel, actionPanel, timelinePanel, replayPanel);
   details.append(detailsSummary, detailContent);
 
   const actions = make('div', 'slice-actions result-actions');
@@ -2059,6 +2009,7 @@ function mountAnalysis(
 }
 
 function openBattleScreen(elements: SliceElements, rules: readonly RuleCard[]): void {
+  if (programCompatibility(elements.program) !== 'current' || !isValidPlayerName(elements.playerName)) return;
   const stableRules = cloneRules(rules);
   mountBattle(elements, stableRules, (state, evidence, replayFrames, retired) => {
     mountAnalysis(elements, stableRules, state, evidence, replayFrames, retired);
@@ -2099,7 +2050,6 @@ export {
   commitRuleEdit,
   createRuleEditHistory,
   durationSecondsLabel,
-  factsFromCombat,
   isValidPlayerName,
   mountVerticalSlice,
   moveRuleCard,

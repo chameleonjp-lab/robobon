@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EFFECT_WINDOWS, battleQualitySettings, directionToTarget, isEffectVisible, robotSideForId, robotSilhouette } from './battle-renderer';
+import { EFFECT_WINDOWS, battleQualitySettings, robotAngles, isEffectVisible, robotSideForId, robotSilhouette } from './battle-renderer';
 
 describe('P3-15 representative battle renderer contract', () => {
   it('keeps ally and enemy silhouettes distinct and deterministic', () => {
@@ -21,17 +21,10 @@ describe('P3-15 representative battle renderer contract', () => {
     expect(robotSideForId(99)).toBe('enemy');
   });
 
-  it('points the body and turret at the opposing unit', () => {
-    const right = directionToTarget({ id: 1, x: 100, y: 180 }, { id: 2, x: 200, y: 180 });
-    const up = directionToTarget({ id: 2, x: 200, y: 180 }, { id: 1, x: 200, y: 80 });
-    const samePosition = directionToTarget({ id: 1, x: 120, y: 120 }, { id: 2, x: 120, y: 120 });
-
-    expect(right).toMatchObject({ x: 1, y: 0, angle: 0 });
-    expect(up.x).toBeCloseTo(0);
-    expect(up.y).toBeCloseTo(-1);
-    expect(up.angle).toBeCloseTo(-Math.PI / 2);
-    expect(samePosition).toMatchObject({ x: 1, y: 0, angle: 0 });
-    expect(Math.hypot(up.x, up.y)).toBeCloseTo(1);
+  it('renders the recorded body and turret headings independently', () => {
+    expect(robotAngles({ id: 1, heading: 64, turretHeading: 128 })).toEqual({ body: Math.PI / 2, turret: Math.PI });
+    expect(robotAngles({ id: 2, heading: 0, turretHeading: 64 })).toEqual({ body: 0, turret: Math.PI / 2 });
+    expect(robotAngles({ id: 2 })).toEqual({ body: Math.PI, turret: Math.PI });
   });
 
   it('keeps weapon effects inside fixed tick windows', () => {

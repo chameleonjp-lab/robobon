@@ -1,4 +1,5 @@
 import { MAX_HEAT, type CombatEvent, type CombatState, type CombatantState, type ProjectileState } from '../simulation/combat';
+import type { BattleObstacle } from '../simulation/battle-state';
 
 /** The first representative arena uses a fixed, full-scene camera. */
 export const BATTLE_RENDER_SIZE = { width: 640, height: 360 } as const;
@@ -17,6 +18,11 @@ export interface BattleRenderOptions {
   readonly effects?: BattleEffectMode;
   readonly quality?: BattleQuality;
 }
+
+/** Render snapshots may be compact CombatStates with optional mission cover. */
+export type BattleRenderableState = CombatState & {
+  readonly obstacles?: readonly BattleObstacle[];
+};
 
 export interface BattleQualitySettings {
   readonly scorchMarkLimit: number;
@@ -170,18 +176,44 @@ function drawArena(context: CanvasRenderingContext2D): void {
   // Reused scrap is deliberately static: the arena reads as a test dock, not a war zone.
   drawDockPanel(context, 42, 42, 126, 70);
   drawDockPanel(context, 472, 248, 126, 70);
-  context.strokeStyle = 'rgb(255 184 77 / 75%)';
-  context.lineWidth = 2;
-  context.setLineDash([7, 6]);
-  context.strokeRect(253, 132, 134, 96);
-  context.setLineDash([]);
-  context.fillStyle = 'rgb(255 184 77 / 80%)';
-  context.font = '700 10px ui-monospace, SFMono-Regular, Menlo, monospace';
-  context.fillText('TEST ZONE', 264, 149);
-
   context.strokeStyle = COLORS.border;
   context.lineWidth = 2;
   context.strokeRect(1, 1, BATTLE_RENDER_SIZE.width - 2, BATTLE_RENDER_SIZE.height - 2);
+}
+
+function drawMissionObstacles(
+  context: CanvasRenderingContext2D,
+  obstacles: readonly BattleObstacle[] | undefined,
+): void {
+  if (!obstacles || obstacles.length === 0) return;
+  for (const [index, obstacle] of obstacles.entries()) {
+    const width = obstacle.maxX - obstacle.minX;
+    const height = obstacle.maxY - obstacle.minY;
+    context.save();
+    context.fillStyle = 'rgb(21 33 42 / 92%)';
+    context.fillRect(obstacle.minX, obstacle.minY, width, height);
+    context.strokeStyle = 'rgb(255 184 77 / 90%)';
+    context.lineWidth = 2;
+    context.setLineDash([6, 4]);
+    context.strokeRect(obstacle.minX + 1, obstacle.minY + 1, Math.max(0, width - 2), Math.max(0, height - 2));
+    context.setLineDash([]);
+    context.strokeStyle = 'rgb(183 196 168 / 55%)';
+    context.lineWidth = 1;
+    for (let offset = -height; offset < width; offset += 14) {
+      context.beginPath();
+      context.moveTo(obstacle.minX + Math.max(0, offset), obstacle.minY + Math.max(0, -offset));
+      context.lineTo(
+        obstacle.minX + Math.min(width, offset + height),
+        obstacle.minY + Math.min(height, height + offset),
+      );
+      context.stroke();
+    }
+    context.fillStyle = COLORS.warning;
+    context.font = '700 9px ui-monospace, SFMono-Regular, Menlo, monospace';
+    context.textAlign = 'left';
+    context.fillText(`障害物${index + 1}`, obstacle.minX + 6, obstacle.minY + 14);
+    context.restore();
+  }
 }
 
 function drawFloorMarker(context: CanvasRenderingContext2D, side: RobotSide, x: number, y: number, active: boolean): void {
@@ -498,7 +530,7 @@ function arenaScale(state: CombatState, context: CanvasRenderingContext2D): { x:
  */
 export function drawBattleScene(
   context: CanvasRenderingContext2D,
-  state: CombatState,
+  state: BattleRenderableState,
   activeRuleId: string | null,
   options: BattleRenderOptions = {},
 ): void {
@@ -513,6 +545,7 @@ export function drawBattleScene(
   context.save();
   context.setTransform(scale.x, 0, 0, scale.y, -state.arena.minX * scale.x, -state.arena.minY * scale.y);
   drawArena(context);
+  drawMissionObstacles(context, state.obstacles);
   drawScorchMarks(context, state, qualitySettings.scorchMarkLimit);
   drawRobot(context, first, activeRuleId);
   drawRobot(context, second, activeRuleId);

@@ -205,6 +205,8 @@ export interface BattleState extends CombatState {
   readonly selectionTrace: readonly BattleSelectionTrace[];
   readonly nextActionStartId: number;
   readonly simulationVersion: typeof CURRENT_SIMULATION_VERSION;
+  /** Content tuning version (weapons, enemy setup, and mission geometry). */
+  readonly contentVersion?: string;
 }
 
 export interface BattleStateInput {
@@ -218,6 +220,7 @@ export interface BattleStateInput {
   readonly nextProjectileId?: number;
   readonly nextActionStartId?: number;
   readonly simulationVersion?: string;
+  readonly contentVersion?: string;
 }
 
 function assertId(value: number, label: string): void {
@@ -697,9 +700,10 @@ export function validateBattleState(state: BattleState): void {
   if (state.actionEvents.length > MAX_BATTLE_ACTION_EVENTS) throw new RangeError('battle action log exceeds limit');
   if (state.selectionTrace.length > MAX_BATTLE_SELECTION_TRACE) throw new RangeError('battle selection trace exceeds limit');
   if (state.simulationVersion !== CURRENT_SIMULATION_VERSION) throw new RangeError('unsupported simulation version');
+  if (state.contentVersion !== undefined) assertTextId(state.contentVersion, 'contentVersion');
 }
 
-/** Creates a canonical R01 state while retaining CombatState's existing limits and types. */
+/** Creates a canonical battle state while retaining CombatState's existing limits and types. */
 export function createBattleState(input: BattleStateInput): BattleState {
   if (input.simulationVersion !== undefined && input.simulationVersion !== CURRENT_SIMULATION_VERSION) {
     throw new RangeError(`unsupported simulation version: ${input.simulationVersion}`);
@@ -739,6 +743,7 @@ export function createBattleState(input: BattleStateInput): BattleState {
     selectionTrace: [],
     nextActionStartId: input.nextActionStartId ?? 0,
     simulationVersion: CURRENT_SIMULATION_VERSION,
+    ...(input.contentVersion === undefined ? {} : { contentVersion: input.contentVersion }),
   };
   validateBattleState(state);
   return state;

@@ -24,6 +24,8 @@ describe('P1-09 vertical slice model', () => {
       ['face-target', 1],
       ['fire-pulse', 2],
       ['explore', 3],
+      ['retreat', 4],
+      ['strafe', 5],
     ]);
   });
 
@@ -45,8 +47,10 @@ describe('P1-09 vertical slice model', () => {
 
   it('moves cards without drag and always reassigns vertical priorities', () => {
     const moved = moveRuleCard(DEFAULT_RULES, 3, -1);
-    expect(moved.map((rule) => rule.id)).toEqual(['rule-cool', 'rule-face', 'rule-fallback', 'rule-fire']);
-    expect(moved.map((rule) => rule.priority)).toEqual([0, 1, 2, 3]);
+    expect(moved.map((rule) => rule.id)).toEqual([
+      'rule-cool', 'rule-face', 'rule-fallback', 'rule-fire', 'rule-retreat-near', 'rule-strafe-warning',
+    ]);
+    expect(moved.map((rule) => rule.priority)).toEqual([0, 1, 2, 3, 4, 5]);
   });
 
   it('keeps an undo history across editor rerenders', () => {

@@ -1,11 +1,17 @@
 import { battleEventText } from './battle-status';
 import type { CombatEvent, CombatState } from './simulation/combat';
+import type { BattleObstacle } from './simulation/battle-state';
 
 /** One immutable, render-only snapshot of a running battle. */
 export interface ReplayFrame {
-  readonly state: CombatState;
+  readonly state: BattleRenderableReplayState;
   readonly ruleId: string | null;
 }
+
+export type BattleRenderableReplayState = CombatState & {
+  readonly obstacles?: readonly BattleObstacle[];
+  readonly contentVersion?: string;
+};
 
 export interface ReplayWindow {
   readonly frames: readonly ReplayFrame[];
@@ -28,8 +34,8 @@ const MAX_SNAPSHOT_EVENTS = 64;
  * Copies only the state needed by the renderer. The simulation remains the
  * source of truth; a replay frame is never fed back into the simulation.
  */
-export function compactReplayState(state: CombatState): CombatState {
-  return {
+export function compactReplayState(state: BattleRenderableReplayState): BattleRenderableReplayState {
+  const snapshot = {
     tick: state.tick,
     maxTicks: state.maxTicks,
     nextProjectileId: state.nextProjectileId,
@@ -38,7 +44,15 @@ export function compactReplayState(state: CombatState): CombatState {
     projectiles: state.projectiles.map((projectile) => ({ ...projectile })),
     events: state.events.slice(-MAX_SNAPSHOT_EVENTS).map((event) => ({ ...event })),
     outcome: { ...state.outcome },
+    ...(state.contentVersion === undefined ? {} : { contentVersion: state.contentVersion }),
   };
+  if (state.obstacles && state.obstacles.length > 0) {
+    return {
+      ...snapshot,
+      obstacles: state.obstacles.map((obstacle) => ({ ...obstacle })),
+    };
+  }
+  return snapshot;
 }
 
 /**

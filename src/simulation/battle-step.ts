@@ -1,5 +1,5 @@
 import { addGameIntegers } from './fixed-point';
-import { resolveCircleCollision } from './geometry';
+import { clampBodyToArena, resolveCircleCollision } from './geometry';
 import { setHeadingVelocity, stepBody, turnHeading, velocityForHeading } from './motion';
 import { headingToPoint } from './sensor';
 import {
@@ -16,6 +16,7 @@ import {
   type BattleActionEventType,
   type BattleActionAvailability,
   type BattleActorConfig,
+  type BattleObstacle,
   type BattleRobot,
   type BattleRuleEvaluation,
   type BattleSelectionTrace,
@@ -391,6 +392,50 @@ function turnAndMove(
   return robot;
 }
 
+/**
+ * Keeps a robot's circular body outside solid mission geometry.  The
+ * obstacle is expanded by the robot radius, so a centre touching an edge is
+ * valid while a centre inside the expanded rectangle is pushed to its nearest
+ * edge.  All inputs and corrections stay integer-valued for replay parity.
+ */
+function resolveObstacleCollision(robot: BattleRobot, obstacle: BattleObstacle): BattleRobot {
+  if (!robot.active) return robot;
+  const minX = obstacle.minX - robot.radius;
+  const maxX = obstacle.maxX + robot.radius;
+  const minY = obstacle.minY - robot.radius;
+  const maxY = obstacle.maxY + robot.radius;
+  const insideX = robot.x > minX && robot.x < maxX;
+  const insideY = robot.y > minY && robot.y < maxY;
+  if (!insideX || !insideY) return robot;
+
+  const pushLeft = robot.x - minX;
+  const pushRight = maxX - robot.x;
+  const pushUp = robot.y - minY;
+  const pushDown = maxY - robot.y;
+  const horizontal = Math.min(pushLeft, pushRight);
+  const vertical = Math.min(pushUp, pushDown);
+  if (horizontal <= vertical) {
+    const moveLeft = pushLeft <= pushRight;
+    return {
+      ...robot,
+      x: moveLeft ? minX : maxX,
+      vx: moveLeft && robot.vx > 0 || !moveLeft && robot.vx < 0 ? 0 : robot.vx,
+    };
+  }
+  const moveUp = pushUp <= pushDown;
+  return {
+    ...robot,
+    y: moveUp ? minY : maxY,
+    vy: moveUp && robot.vy > 0 || !moveUp && robot.vy < 0 ? 0 : robot.vy,
+  };
+}
+
+function resolveMissionObstacles(robot: BattleRobot, obstacles: readonly BattleObstacle[]): BattleRobot {
+  let resolved = robot;
+  for (const obstacle of obstacles) resolved = resolveObstacleCollision(resolved, obstacle);
+  return resolved;
+}
+
 function advanceMotion(state: BattleState, robots: BattleRobot[]): BattleRobot[] {
   let moved = robots.map((robot) => {
     const actor = actorForId(state, robot.id);
@@ -398,7 +443,7 @@ function advanceMotion(state: BattleState, robots: BattleRobot[]): BattleRobot[]
       return stepBody({ ...robot, speed: 0, vx: 0, vy: 0 }, state.arena) as BattleRobot;
     }
     const commanded = turnAndMove(robot, actor, state, robot.runningAction.action);
-    const stepped = stepBody(commanded, state.arena) as BattleRobot;
+    const stepped = resolveMissionObstacles(stepBody(commanded, state.arena) as BattleRobot, state.obstacles);
     // A boundary clamp removes the velocity component that would leave the
     // arena. When both components are gone, clear the scalar speed too so an
     // explore action can deliberately start moving again on its next tick.
@@ -421,7 +466,10 @@ function advanceMotion(state: BattleState, robots: BattleRobot[]): BattleRobot[]
       });
     }
   }
-  return moved;
+  // Pair separation can push a robot against an arena edge. Clamp once more
+  // after all pair resolutions so a boundary collision never creates an
+  // invalid snapshot on the following combat validation pass.
+  return moved.map((robot) => resolveMissionObstacles(clampBodyToArena(robot, state.arena) as BattleRobot, state.obstacles));
 }
 
 function finalCommands(
@@ -481,7 +529,7 @@ function finalCommands(
   return { commands, coolingIds };
 }
 
-/** Advances a complete R01 battle by exactly one deterministic simulation tick. */
+/** Advances a complete deterministic mission battle by exactly one simulation tick. */
 export function stepBattle(state: BattleState): BattleState {
   validateBattleState(state);
   if (state.outcome.status === 'finished') return state;
